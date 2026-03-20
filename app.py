@@ -245,7 +245,7 @@ with st.expander("\U0001f916 AI Situational Awareness Briefing", expanded=False)
 
 st.markdown(
     '<div style="background: #8B1A1A; padding: 0.4rem 1rem; border-radius: 6px; margin: 0.8rem 0 0.5rem 0;">'
-    '<h3 style="color: white; margin: 0; font-size: 1.1rem;">Executive Snapshot</h3></div>',
+    '<h3 style="color: white; margin: 0; font-size: 1.1rem; text-align: center;">Executive Snapshot</h3></div>',
     unsafe_allow_html=True,
 )
 
@@ -273,7 +273,7 @@ for col, card in zip(kpi_cols, kpi_cards):
 
 st.markdown(
     '<div style="background: #8B1A1A; padding: 0.4rem 1rem; border-radius: 6px; margin: 0.8rem 0 0.5rem 0;">'
-    '<h3 style="color: white; margin: 0; font-size: 1.1rem;">Geographic View</h3></div>',
+    '<h3 style="color: white; margin: 0; font-size: 1.1rem; text-align: center;">Geographic View</h3></div>',
     unsafe_allow_html=True,
 )
 
@@ -300,7 +300,7 @@ st.plotly_chart(fig_map, use_container_width=True, key="choropleth_map")
 
 st.markdown(
     '<div style="background: #8B1A1A; padding: 0.4rem 1rem; border-radius: 6px; margin: 0.8rem 0 0.5rem 0;">'
-    '<h3 style="color: white; margin: 0; font-size: 1.1rem;">Logistics & Operations</h3></div>',
+    '<h3 style="color: white; margin: 0; font-size: 1.1rem; text-align: center;">Logistics & Operations</h3></div>',
     unsafe_allow_html=True,
 )
 
@@ -334,7 +334,7 @@ with log_col4:
 
 st.markdown(
     '<div style="background: #8B1A1A; padding: 0.4rem 1rem; border-radius: 6px; margin: 0.8rem 0 0.5rem 0;">'
-    '<h3 style="color: white; margin: 0; font-size: 1.1rem;">Emerging Threats</h3></div>',
+    '<h3 style="color: white; margin: 0; font-size: 1.1rem; text-align: center;">Emerging Threats</h3></div>',
     unsafe_allow_html=True,
 )
 
