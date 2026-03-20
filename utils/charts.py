@@ -288,7 +288,12 @@ def make_trend_line(trend_df: pd.DataFrame, metric_col: str, label: str) -> go.F
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
-    return _base_layout(fig, f"{label} — 30-Day Trend")
+    fig = _base_layout(fig, f"{label} — 30-Day Trend")
+    fig.update_layout(
+        margin=dict(t=90),
+        title=dict(y=0.98, yanchor="top"),
+    )
+    return fig
 
 
 def make_alert_donut(alert_counts: dict) -> go.Figure:

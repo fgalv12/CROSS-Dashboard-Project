@@ -396,7 +396,7 @@ Guidelines:
 - Note any positive developments too (improvements, resolved alerts).
 - Keep the briefing to 8-15 bullet points. Be concise, not verbose.
 - Group bullets under the three questions as headers.
-- End with a one-sentence "Bottom Line" assessment.
+- Start with a one-sentence bold "Bottom Line" assessment immediately after the date, before the three sections.
 - Use plain language appropriate for executive leadership, not technical jargon.
 - Format output in clean Markdown.
 """
