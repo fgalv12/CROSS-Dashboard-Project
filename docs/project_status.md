@@ -1,12 +1,12 @@
 # Project Status
 
-**Last Updated:** 2026-03-20
+**Last Updated:** 2026-04-06
 
 This document describes milestones, what has been accomplished, and what's next since last time.
 
-## Current Phase: Core Dashboard Complete
+## Current Phase: Drill-Down Views Complete (Milestone 3)
 
-The CROSS Dashboard has a fully functional Streamlit application with all four primary panels, data pipeline, and AI integration operational.
+The CROSS Dashboard has a fully functional Streamlit application with all primary panels, data pipeline, AI integration, and progressive drill-down views from KPI to facility level.
 
 ## Completed Milestones
 
@@ -41,19 +41,26 @@ The CROSS Dashboard has a fully functional Streamlit application with all four p
 - [x] Requirements file with pinned minimum versions
 - [x] Project documentation (CLAUDE.md, project_spec.md)
 
+### Drill-Down Views (Milestone 3)
+- [x] County detail drilldown view with tabbed interface (Facilities, Inventory, Incidents, Alert History)
+- [x] Facility detail view with ICU trend, staff fill rate, bed occupancy charts
+- [x] Resource transfer Sankey diagram with delay color-coding and top-N filter
+- [x] Incident event timeline with filterable table and severity chart
+- [x] County KPI header with alert status badge
+- [x] Nested facility selector within county detail panel
+- [x] Transfer summary statistics (total transfers, quantity, avg delay, delayed count)
+
+### Documentation
+- [x] Populate and maintain docs folder (architecture, changelog, status)
+
 ## Planned / Next Steps
 
-### Near-Term
-- [ ] County detail drilldown view (click map county to see facility-level data)
-- [ ] Facility detail view
-- [ ] Resource transfer Sankey diagrams
-- [ ] Incident event timeline/table view
-- [ ] Populate and maintain docs folder (architecture, changelog, status)
-
-### Medium-Term
+### Near-Term (Milestone 4)
 - [ ] Configurable alert thresholds UI
 - [ ] Alert history timeline
 - [ ] PDF/Markdown daily digest export
+
+### Medium-Term
 - [ ] Role-based access controls (RBAC) via Streamlit auth
 
 ### Long-Term

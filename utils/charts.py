@@ -320,3 +320,257 @@ def make_alert_donut(alert_counts: dict) -> go.Figure:
         showlegend=False,
     )
     return _base_layout(fig, "Alert Status Distribution")
+
+
+# ---------------------------------------------------------------------------
+# Milestone 3: Drill-Down Chart Functions
+# ---------------------------------------------------------------------------
+
+SEVERITY_COLORS = {
+    "Critical": "#B22222",
+    "High": "#FF8C00",
+    "Medium": "#FFD700",
+    "Low": "#2E8B57",
+}
+
+
+def make_facility_capacity_bars(facility_df: pd.DataFrame, datesk: int) -> go.Figure:
+    """Horizontal bar chart of ICU occupancy % per facility for a single date."""
+    if facility_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No facility data", showarrow=False)
+        return _base_layout(fig, "Facility ICU Occupancy")
+
+    day = facility_df[facility_df["DateSK"] == datesk].copy()
+    if day.empty:
+        day = facility_df.drop_duplicates("FacilitySK", keep="last").copy()
+
+    day = day.sort_values("ICUOccPct", ascending=True)
+
+    colors = []
+    for pct in day["ICUOccPct"]:
+        if pct >= 95:
+            colors.append("#B22222")
+        elif pct >= 85:
+            colors.append("#FF8C00")
+        elif pct >= 70:
+            colors.append("#FFD700")
+        else:
+            colors.append("#2E8B57")
+
+    fig = go.Figure(go.Bar(
+        y=day["FacilityName"],
+        x=day["ICUOccPct"],
+        orientation="h",
+        marker_color=colors,
+        text=day["ICUOccPct"].apply(lambda x: f"{x:.0f}%"),
+        textposition="outside",
+    ))
+
+    fig.update_layout(
+        xaxis_title="ICU Occupancy %",
+        yaxis_title="",
+        xaxis=dict(range=[0, 110]),
+    )
+    height = max(CHART_HEIGHT, len(day) * 35 + 80)
+    fig = _base_layout(fig, "Facility ICU Occupancy")
+    fig.update_layout(height=height)
+    return fig
+
+
+def make_facility_icu_trend(facility_df: pd.DataFrame) -> go.Figure:
+    """Line chart of ICU occupancy % over time for a single facility."""
+    if facility_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No data", showarrow=False)
+        return _base_layout(fig, "ICU Occupancy Trend")
+
+    fig = px.line(
+        facility_df,
+        x="Date",
+        y="ICUOccPct",
+        markers=True,
+        color_discrete_sequence=["#4FC3F7"],
+    )
+    fig.update_layout(xaxis_title="", yaxis_title="ICU Occupancy %")
+    fig.add_hline(y=85, line_dash="dash", line_color="#FF8C00",
+                  annotation_text="85% threshold")
+    return _base_layout(fig, "ICU Occupancy Trend")
+
+
+def make_facility_staff_trend(facility_df: pd.DataFrame) -> go.Figure:
+    """Line chart of staff fill rate over time for a single facility."""
+    if facility_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No data", showarrow=False)
+        return _base_layout(fig, "Staff Fill Rate")
+
+    fig = px.line(
+        facility_df,
+        x="Date",
+        y="StaffFillRate",
+        markers=True,
+        color_discrete_sequence=["#81C784"],
+    )
+    fig.update_layout(xaxis_title="", yaxis_title="Staff Fill Rate")
+    fig.update_yaxes(tickformat=".0%")
+    return _base_layout(fig, "Staff Fill Rate")
+
+
+def make_facility_bed_occupancy(facility_df: pd.DataFrame) -> go.Figure:
+    """Stacked area chart: occupied vs total staffed beds over time."""
+    if facility_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No data", showarrow=False)
+        return _base_layout(fig, "Bed Occupancy")
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=facility_df["Date"],
+        y=facility_df["StaffedBedsTotal"],
+        fill="tozeroy",
+        name="Total Beds",
+        line=dict(color="rgba(79, 195, 247, 0.3)"),
+        fillcolor="rgba(79, 195, 247, 0.1)",
+    ))
+    fig.add_trace(go.Scatter(
+        x=facility_df["Date"],
+        y=facility_df["StaffedBedsOccupied"],
+        fill="tozeroy",
+        name="Occupied",
+        line=dict(color="#FF8C00"),
+        fillcolor="rgba(255, 140, 0, 0.3)",
+    ))
+    fig.update_layout(
+        xaxis_title="", yaxis_title="Beds",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    return _base_layout(fig, "Bed Occupancy")
+
+
+def make_county_inventory_detail(inventory_df: pd.DataFrame) -> go.Figure:
+    """Inventory levels by item over time for one county."""
+    if inventory_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No inventory data", showarrow=False)
+        return _base_layout(fig, "County Inventory Levels")
+
+    fig = px.line(
+        inventory_df,
+        x="Date",
+        y="EstimatedDaysOnHand",
+        color="ItemName",
+        markers=False,
+    )
+    fig.update_layout(
+        xaxis_title="", yaxis_title="Est. Days on Hand",
+        legend_title="Item",
+    )
+    return _base_layout(fig, "County Inventory Levels")
+
+
+def make_alert_timeline(alert_df: pd.DataFrame) -> go.Figure:
+    """Color-coded timeline of daily alert status for a county."""
+    if alert_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No alert data", showarrow=False)
+        return _base_layout(fig, "Alert Status Timeline")
+
+    status_map = {"Normal": 0, "Watch": 1, "Alert": 2, "Critical": 3}
+    df = alert_df.copy()
+    df["StatusNum"] = df["AlertStatus"].map(status_map).fillna(0)
+
+    fig = go.Figure(go.Bar(
+        x=df["Date"],
+        y=[1] * len(df),
+        marker_color=[ALERT_COLORS.get(s, "#888") for s in df["AlertStatus"]],
+        text=df["AlertStatus"],
+        textposition="inside",
+        hovertemplate="Date: %{x}<br>Status: %{text}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        xaxis_title="",
+        yaxis=dict(visible=False),
+        bargap=0,
+    )
+    fig = _base_layout(fig, "Alert Status Timeline")
+    fig.update_layout(height=150)
+    return fig
+
+
+def make_transfer_sankey(transfer_df: pd.DataFrame, top_n: int = 20) -> go.Figure:
+    """Sankey diagram of inter-county resource flows (top N pairs by volume)."""
+    if transfer_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No transfer data", showarrow=False)
+        return _base_layout(fig, "Resource Transfer Flows")
+
+    df = transfer_df.head(top_n)
+
+    # Build unique node list: sources on left, destinations on right
+    sources = df["FromCountyName"].unique().tolist()
+    destinations = df["ToCountyName"].unique().tolist()
+    # Nodes that appear in both get separate source/dest entries
+    all_nodes = [f"{s} (out)" for s in sources] + [f"{d} (in)" for d in destinations]
+    source_idx = {s: i for i, s in enumerate(sources)}
+    dest_idx = {d: i + len(sources) for i, d in enumerate(destinations)}
+
+    link_source = [source_idx[r["FromCountyName"]] for _, r in df.iterrows()]
+    link_target = [dest_idx[r["ToCountyName"]] for _, r in df.iterrows()]
+    link_value = df["TotalQty"].tolist()
+
+    # Color links by delay
+    link_colors = []
+    for _, r in df.iterrows():
+        delay = r["AvgDelayDays"]
+        if delay > 3:
+            link_colors.append("rgba(178, 34, 34, 0.5)")
+        elif delay > 1.5:
+            link_colors.append("rgba(255, 140, 0, 0.5)")
+        else:
+            link_colors.append("rgba(46, 139, 87, 0.5)")
+
+    fig = go.Figure(go.Sankey(
+        node=dict(
+            pad=15,
+            thickness=20,
+            label=all_nodes,
+            color="rgba(79, 195, 247, 0.8)",
+        ),
+        link=dict(
+            source=link_source,
+            target=link_target,
+            value=link_value,
+            color=link_colors,
+        ),
+    ))
+
+    fig = _base_layout(fig, "Resource Transfer Flows")
+    fig.update_layout(height=500)
+    return fig
+
+
+def make_incident_severity_chart(incident_df: pd.DataFrame) -> go.Figure:
+    """Stacked bar chart of incidents by severity level over time."""
+    if incident_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No incident data", showarrow=False)
+        return _base_layout(fig, "Incidents by Severity")
+
+    daily = incident_df.groupby(["Date", "SeverityLevel"]).size().reset_index(name="Count")
+
+    fig = px.bar(
+        daily,
+        x="Date",
+        y="Count",
+        color="SeverityLevel",
+        color_discrete_map=SEVERITY_COLORS,
+        barmode="stack",
+    )
+    fig.update_layout(
+        xaxis_title="",
+        yaxis_title="Incident Count",
+        legend_title="Severity",
+    )
+    return _base_layout(fig, "Incidents by Severity")
