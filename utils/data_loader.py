@@ -76,6 +76,19 @@ def get_incident_types(data: dict) -> list[dict]:
     return df[["IncidentTypeSK", "IncidentTypeName"]].to_dict("records")
 
 
+def get_facilities(data: dict, county_sk: int | None = None) -> list[dict]:
+    """Return list of {FacilitySK, FacilityName, FacilityTypeName, CountySK} dicts, optionally filtered by county."""
+    fac = data["facilities"].merge(
+        data["facility_types"][["FacilityTypeSK", "FacilityTypeName"]],
+        on="FacilityTypeSK",
+        how="left",
+    )
+    if county_sk is not None:
+        fac = fac[fac["CountySK"] == county_sk]
+    fac = fac.sort_values("FacilityName")
+    return fac[["FacilitySK", "FacilityName", "FacilityTypeName", "CountySK"]].to_dict("records")
+
+
 def _date_to_datesk(dt: pd.Timestamp) -> int:
     """Convert a Timestamp to DateSK integer (YYYYMMDD)."""
     return int(dt.strftime("%Y%m%d"))

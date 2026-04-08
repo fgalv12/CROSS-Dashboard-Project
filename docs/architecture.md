@@ -2,7 +2,7 @@
 
 This document describes the high-level system architecture, data flow, and component relationships.
 
-**Last Updated:** 2026-03-20
+**Last Updated:** 2026-04-06
 
 ## Technology Stack
 
@@ -19,18 +19,19 @@ This document describes the high-level system architecture, data flow, and compo
 
 ```
 CROSS Dashboard Project/
-├── app.py                                # Streamlit entry point (dashboard UI)
+├── app.py                                # Streamlit entry point (7 panels + AI)
 ├── cross_situational_awareness_agent.py  # AI agent (standalone CLI + importable)
 ├── requirements.txt                      # Python dependencies
 ├── .env.example                          # Example environment variables
 ├── .streamlit/
 │   ├── config.toml                       # Theme & layout settings
-│   └── secrets.toml                      # ANTHROPIC_API_KEY (not committed)
+│   └── secrets.toml                      # API keys (not committed)
 ├── utils/
 │   ├── __init__.py
-│   ├── data_loader.py                    # Excel loading, caching, filtering
-│   ├── metrics.py                        # KPI computation, snapshots, trends
-│   └── charts.py                         # Plotly chart builder functions
+│   ├── data_loader.py                    # Excel loading, caching, filtering, facility lookups
+│   ├── metrics.py                        # KPI computation, snapshots, trends, drill-down metrics
+│   ├── charts.py                         # Plotly chart builder functions (16 chart types)
+│   └── faq_agent.py                      # OpenAI Agent SDK FAQ assistant
 ├── data/
 │   ├── KS_CROSS_mock_dataset.xlsx        # Source dataset (15 sheets, ~60K rows)
 │   └── kansas_counties.geojson           # County boundaries for choropleth
@@ -68,6 +69,17 @@ filter_data() → Filtered DataFrames
     ├──▶ get_supply_delay()    → Delay trend chart data
     ├──▶ get_trend_series()    → Anomaly detection chart data
     │
+    ├──▶ Drill-Down (on county select)
+    │       ├── get_county_detail()            → County KPI header
+    │       ├── get_county_facility_capacity()  → Facility ICU bars
+    │       ├── get_county_inventory()          → County inventory chart
+    │       ├── get_county_incidents()          → County incident table
+    │       ├── get_county_alert_timeline()     → Alert status timeline
+    │       └── get_facility_detail()           → Facility ICU/staff/bed trends
+    │
+    ├──▶ get_transfer_flows()  → Sankey diagram data
+    ├──▶ get_incident_timeline()→ Filterable incident event table
+    │
     └──▶ AI Agent (on demand)
             ├── Builds JSON prompt from snapshot + changes + trends
             ├── Calls Anthropic API (claude-sonnet-4, streaming)
@@ -95,10 +107,14 @@ filter_data() → Filtered DataFrames
 
 ## Dashboard Panels
 
-1. **Executive Snapshot** — KPI cards: Active Incidents, ICU Capacity %, Avg Response Time, Deployment Lag, Counties in Alert/Critical (with day-over-day deltas)
-2. **Geographic View** — Interactive Kansas choropleth map with selectable color metrics (ICU %, incidents, stress score, alert status)
-3. **Logistics & Operations** — 2x2 grid: PPE inventory trends, staff availability by region, equipment transfer volumes, supply delay trends
-4. **Emerging Threats** — 30-day trend line with mean/confidence bands and anomaly markers; alert status donut chart; alert/critical county table
+1. **AI Briefing** — On-demand streaming executive summary powered by Claude Sonnet 4 with configurable lookback
+2. **Executive Snapshot** — KPI cards: Active Incidents, ICU Capacity %, Avg Response Time, Deployment Lag, Counties in Alert/Critical (with day-over-day deltas)
+3. **Geographic View** — Interactive Kansas choropleth map with selectable color metrics (ICU %, incidents, stress score, alert status)
+4. **County Detail View** — Tabbed drill-down (Facilities, Inventory, Incidents, Alert History) with nested facility selector showing ICU trend, staff fill rate, bed occupancy
+5. **Transfer Tracking** — Sankey diagram of inter-county resource flows color-coded by delay status, with adjustable top-N filter and summary statistics
+6. **Logistics & Operations** — 2x2 grid: PPE inventory trends, staff availability by region, equipment transfer volumes, supply delay trends
+7. **Emerging Threats** — 30-day trend line with mean/confidence bands and anomaly markers; alert status donut chart; alert/critical county table
+8. **Incident Timeline** — Filterable incident event table with severity stacked bar chart, searchable by type, severity, and county
 
 ## AI Integration
 

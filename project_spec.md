@@ -185,8 +185,12 @@ Filtered DataFrames
     │
     ├──▶ KPI cards (aggregated scalars)
     ├──▶ Choropleth map (county-level metrics)
+    ├──▶ County drill-down → facility ICU/staffing, inventory, incidents, alerts
+    │       └──▶ Facility drill-down → ICU trend, staff fill rate, bed occupancy
+    ├──▶ Transfer Sankey (inter-county resource flows)
     ├──▶ Time-series charts (daily aggregates over selected window)
-    ├──▶ Trend analysis (30/60/90-day stats + anomaly detection)
+    ├──▶ Trend analysis (30-day stats + anomaly detection)
+    ├──▶ Incident timeline (filterable event table with severity chart)
     │
     └──▶ AI Agent
             │
@@ -205,20 +209,26 @@ Filtered DataFrames
 
 ```
 CROSS Dashboard Project/
-├── app.py                                # Streamlit entry point
-├── cross_situational_awareness_agent.py  # AI agent (existing, also importable)
+├── app.py                                # Streamlit entry point (7 panels + AI)
+├── cross_situational_awareness_agent.py  # AI agent (standalone CLI + importable)
 ├── data/
-│   └── KS_CROSS_mock_dataset.xlsx        # Source dataset
+│   ├── KS_CROSS_mock_dataset.xlsx        # Source dataset
+│   └── kansas_counties.geojson           # County boundary polygons (TIGER/Line)
 ├── utils/
-│   ├── data_loader.py                    # Load + cache + join Excel sheets
-│   ├── metrics.py                        # KPI computation, snapshot, changes, trends
-│   └── charts.py                         # Plotly chart builder functions
+│   ├── data_loader.py                    # Load + cache + join + filter Excel sheets
+│   ├── metrics.py                        # KPI computation, drill-down metrics, AI prompts
+│   ├── charts.py                         # Plotly chart builder functions (16 chart types)
+│   └── faq_agent.py                      # OpenAI Agent SDK FAQ assistant
 ├── .streamlit/
 │   ├── config.toml                       # Theme, layout settings
-│   └── secrets.toml                      # ANTHROPIC_API_KEY (not committed)
+│   └── secrets.toml                      # API keys (not committed)
+├── docs/
+│   ├── architecture.md                   # System architecture documentation
+│   ├── changelog.md                      # Change history
+│   └── project_status.md                 # Milestone tracking
 ├── requirements.txt                      # anthropic, pandas, openpyxl, streamlit, plotly
 ├── project_spec.md                       # This file
-└── CLAUDE.md                            # AI coding assistant context
+└── CLAUDE.md                             # AI coding assistant context
 ```
 
 **Key design decisions:**

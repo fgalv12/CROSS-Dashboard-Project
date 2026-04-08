@@ -14,8 +14,11 @@ Prepared by **Francisco Galvez** (Oracle Health HDI Solution Engineer Intern).
 |---|---|
 | **Executive Snapshot** | Top-level KPIs: Active Incidents, ICU Capacity %, Avg Response Time, Resource Deployment Lag, Counties in Alert Status — with day-over-day deltas |
 | **Geographic View** | Interactive Kansas choropleth map with selectable color metrics (ICU capacity, incidents, stress score, alert status) |
+| **County Drill-Down** | Select a county below the map to view facility-level ICU/staffing, inventory by item, incident history, and alert status timeline — with nested facility detail views |
+| **Transfer Tracking** | Sankey diagram showing inter-county resource flows with delay color-coding, adjustable top-N filter, and summary statistics |
 | **Logistics & Operations** | PPE inventory trends, staff availability by region, equipment transfer volumes, average supply delays |
 | **Emerging Threats** | 30-day trend lines with confidence bands, anomaly detection markers, alert status donut chart, and critical county table |
+| **Incident Timeline** | Filterable table of individual incident events with severity chart, searchable by type, severity, and county |
 | **AI Briefing** | On-demand executive summary powered by Claude Sonnet 4 — streams a plain-language briefing of what changed, what's abnormal, and what needs attention |
 
 ## Tech Stack
@@ -63,15 +66,16 @@ The dashboard opens at **http://localhost:8501**.
 
 ```
 CROSS Dashboard Project/
-├── app.py                                # Streamlit entry point (4 panels + AI)
+├── app.py                                # Streamlit entry point (7 panels + AI)
 ├── cross_situational_awareness_agent.py  # AI agent (standalone CLI + importable)
 ├── data/
 │   ├── KS_CROSS_mock_dataset.xlsx        # Source dataset (Kansas mock data)
 │   └── kansas_counties.geojson           # County boundary polygons
 ├── utils/
 │   ├── data_loader.py                    # Load, cache, join, and filter Excel sheets
-│   ├── metrics.py                        # KPI computation, snapshots, trends, AI prompts
-│   └── charts.py                         # Plotly chart builder functions
+│   ├── metrics.py                        # KPI computation, snapshots, trends, drill-down metrics, AI prompts
+│   ├── charts.py                         # Plotly chart builder functions (16 chart types)
+│   └── faq_agent.py                      # OpenAI Agent SDK FAQ assistant
 ├── .streamlit/
 │   └── config.toml                       # Theme and layout settings
 ├── docs/
@@ -121,11 +125,21 @@ All panels respond to sidebar filters:
 - **County** — cascading filter (narrows based on selected regions)
 - **Incident type** — filter by emergency category
 
+## Drill-Down Navigation
+
+From any high-level KPI, users can drill down to county, facility, and incident level in 2-3 clicks:
+
+1. **Select a county** below the Geographic View map
+2. **View 4 tabs**: Facilities (ICU bars + nested facility selector), Inventory, Incidents, Alert History
+3. **Select a facility** to see ICU trend, staff fill rate, and bed occupancy charts
+
+The **Transfer Tracking** panel shows a Sankey diagram of inter-county resource flows, color-coded by delay status. The **Incident Timeline** provides a filterable table of all individual events.
+
 ## Roadmap
 
-- [ ] County and facility drilldown views
-- [ ] Resource transfer Sankey diagrams
-- [ ] Incident event timeline
+- [x] ~~County and facility drilldown views~~
+- [x] ~~Resource transfer Sankey diagrams~~
+- [x] ~~Incident event timeline~~
 - [ ] Configurable alert thresholds
 - [ ] PDF/Markdown daily digest export
 - [ ] Role-based access controls (RBAC)

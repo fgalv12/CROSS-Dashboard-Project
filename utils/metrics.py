@@ -307,3 +307,225 @@ def build_briefing_prompt(
         "Focus on what decision-makers need to know right now."
     )
     return content
+
+
+# ---------------------------------------------------------------------------
+# Milestone 3: Drill-Down Metric Functions
+# ---------------------------------------------------------------------------
+
+
+def get_county_detail(data: dict, county_sk: int, datesk: int) -> dict:
+    """Single-county snapshot with name, region, alert status, and key KPIs."""
+    dcm = data["daily_county"]
+    row = dcm[(dcm["CountySK"] == county_sk) & (dcm["DateSK"] == datesk)]
+    if row.empty:
+        return {}
+
+    row = row.iloc[0]
+    return {
+        "county_name": _county_name(data, county_sk),
+        "region_name": _region_name(data, int(row["RegionSK"])),
+        "alert_status": row.get("AlertStatus", "Unknown"),
+        "active_incidents": int(row.get("ActiveIncidents", 0)),
+        "avg_response_time": round(float(row.get("AvgResponseTimeHours", 0)), 1),
+        "icu_capacity_pct": round(float(row.get("ICUCapacityPct", 0)), 1),
+        "staff_shortage_rate": round(float(row.get("StaffShortageRate", 0)), 2),
+        "ppe_days_on_hand": round(float(row.get("PPEDaysOnHand", 0)), 1),
+        "capacity_stress_score": round(float(row.get("CapacityStressScore", 0)), 2),
+    }
+
+
+def get_county_facility_capacity(
+    data: dict, county_sk: int, start_datesk: int, end_datesk: int
+) -> pd.DataFrame:
+    """
+    Facility-level ICU/staffing data for a county.
+    Columns: Date, FacilitySK, FacilityName, ICUTotalBeds, ICUOccupiedBeds,
+             ICUOccPct, StaffFillRate, StaffedBedsTotal, StaffedBedsOccupied
+    """
+    fac_cap = data["facility_capacity"]
+    fac_dim = data["facilities"][["FacilitySK", "FacilityName", "CountySK"]]
+
+    window = fac_cap[
+        (fac_cap["CountySK"] == county_sk)
+        & (fac_cap["DateSK"] >= start_datesk)
+        & (fac_cap["DateSK"] <= end_datesk)
+    ]
+    if window.empty:
+        return pd.DataFrame()
+
+    merged = window.merge(fac_dim[["FacilitySK", "FacilityName"]], on="FacilitySK", how="left")
+    merged["ICUOccPct"] = (merged["ICUOccupiedBeds"] / merged["ICUTotalBeds"] * 100).round(1)
+    merged["Date"] = merged["DateSK"].apply(lambda sk: _datesk_to_date(sk).date())
+    return merged
+
+
+def get_county_inventory(
+    data: dict, county_sk: int, start_datesk: int, end_datesk: int
+) -> pd.DataFrame:
+    """
+    Inventory levels by item for a single county.
+    Columns: Date, ItemName, OnHandQty, EstimatedDaysOnHand
+    """
+    inv = data["inventory"]
+    items = data["items"][["ItemSK", "ItemName"]]
+
+    window = inv[
+        (inv["CountySK"] == county_sk)
+        & (inv["DateSK"] >= start_datesk)
+        & (inv["DateSK"] <= end_datesk)
+    ]
+    if window.empty:
+        return pd.DataFrame()
+
+    merged = window.merge(items, on="ItemSK", how="left")
+    merged["Date"] = merged["DateSK"].apply(lambda sk: _datesk_to_date(sk).date())
+    return merged
+
+
+def get_county_incidents(
+    data: dict, county_sk: int, start_datesk: int, end_datesk: int
+) -> pd.DataFrame:
+    """
+    Incident events for a single county.
+    Columns: Date, IncidentTypeName, SeverityLevel, DetectionTimeHours,
+             EscalationTimeHours, ResponseTimeHours
+    """
+    inc = data["incidents"]
+    types = data["incident_types"][["IncidentTypeSK", "IncidentTypeName"]]
+
+    window = inc[
+        (inc["CountySK"] == county_sk)
+        & (inc["DateSK"] >= start_datesk)
+        & (inc["DateSK"] <= end_datesk)
+    ]
+    if window.empty:
+        return pd.DataFrame()
+
+    merged = window.merge(types, on="IncidentTypeSK", how="left")
+    merged["Date"] = merged["DateSK"].apply(lambda sk: _datesk_to_date(sk).date())
+    cols = ["Date", "IncidentTypeName", "SeverityLevel", "DetectionTimeHours",
+            "EscalationTimeHours", "ResponseTimeHours"]
+    return merged[cols].sort_values("Date", ascending=False)
+
+
+def get_county_alert_timeline(
+    data: dict, county_sk: int, start_datesk: int, end_datesk: int
+) -> pd.DataFrame:
+    """
+    Daily alert status for a single county.
+    Columns: Date, AlertStatus
+    """
+    dcm = data["daily_county"]
+    window = dcm[
+        (dcm["CountySK"] == county_sk)
+        & (dcm["DateSK"] >= start_datesk)
+        & (dcm["DateSK"] <= end_datesk)
+    ]
+    if window.empty:
+        return pd.DataFrame()
+
+    result = window[["DateSK", "AlertStatus"]].copy()
+    result["Date"] = result["DateSK"].apply(lambda sk: _datesk_to_date(sk).date())
+    return result[["Date", "AlertStatus"]].sort_values("Date")
+
+
+def get_facility_detail(
+    data: dict, facility_sk: int, start_datesk: int, end_datesk: int
+) -> pd.DataFrame:
+    """
+    Single facility daily capacity data.
+    Columns: Date, ICUTotalBeds, ICUOccupiedBeds, ICUOccPct, StaffFillRate,
+             StaffedBedsTotal, StaffedBedsOccupied
+    """
+    fac_cap = data["facility_capacity"]
+    window = fac_cap[
+        (fac_cap["FacilitySK"] == facility_sk)
+        & (fac_cap["DateSK"] >= start_datesk)
+        & (fac_cap["DateSK"] <= end_datesk)
+    ]
+    if window.empty:
+        return pd.DataFrame()
+
+    result = window.copy()
+    result["ICUOccPct"] = (result["ICUOccupiedBeds"] / result["ICUTotalBeds"] * 100).round(1)
+    result["Date"] = result["DateSK"].apply(lambda sk: _datesk_to_date(sk).date())
+    return result.sort_values("Date")
+
+
+def get_transfer_flows(
+    data: dict, start_datesk: int, end_datesk: int, county_sk: int | None = None
+) -> pd.DataFrame:
+    """
+    Aggregated transfer flows for Sankey diagram.
+    Columns: FromCountyName, ToCountyName, TotalQty, AvgDelayDays, TransferCount
+    """
+    xfer = data["transfers"]
+    counties = data["counties"][["CountySK", "CountyName"]]
+
+    window = xfer[(xfer["DateSK"] >= start_datesk) & (xfer["DateSK"] <= end_datesk)]
+
+    if county_sk is not None:
+        window = window[
+            (window["FromCountySK"] == county_sk) | (window["ToCountySK"] == county_sk)
+        ]
+
+    if window.empty:
+        return pd.DataFrame()
+
+    # Join from/to county names
+    merged = window.merge(
+        counties.rename(columns={"CountySK": "FromCountySK", "CountyName": "FromCountyName"}),
+        on="FromCountySK",
+        how="left",
+    ).merge(
+        counties.rename(columns={"CountySK": "ToCountySK", "CountyName": "ToCountyName"}),
+        on="ToCountySK",
+        how="left",
+    )
+
+    agg = merged.groupby(["FromCountyName", "ToCountyName"]).agg(
+        TotalQty=("TransferQty", "sum"),
+        AvgDelayDays=("ShipmentDelayDays", "mean"),
+        TransferCount=("TransferQty", "count"),
+    ).reset_index()
+
+    return agg.sort_values("TotalQty", ascending=False)
+
+
+def get_incident_timeline(
+    data: dict,
+    start_datesk: int,
+    end_datesk: int,
+    county_sk: int | None = None,
+    incident_type_sk: int | None = None,
+    severity: str | None = None,
+) -> pd.DataFrame:
+    """
+    Filterable incident event table.
+    Columns: Date, CountyName, IncidentTypeName, SeverityLevel,
+             DetectionTimeHours, EscalationTimeHours, ResponseTimeHours
+    """
+    inc = data["incidents"]
+    types = data["incident_types"][["IncidentTypeSK", "IncidentTypeName"]]
+    counties = data["counties"][["CountySK", "CountyName"]]
+
+    window = inc[(inc["DateSK"] >= start_datesk) & (inc["DateSK"] <= end_datesk)]
+
+    if county_sk is not None:
+        window = window[window["CountySK"] == county_sk]
+    if incident_type_sk is not None:
+        window = window[window["IncidentTypeSK"] == incident_type_sk]
+    if severity is not None:
+        window = window[window["SeverityLevel"] == severity]
+
+    if window.empty:
+        return pd.DataFrame()
+
+    merged = window.merge(types, on="IncidentTypeSK", how="left")
+    merged = merged.merge(counties, on="CountySK", how="left")
+    merged["Date"] = merged["DateSK"].apply(lambda sk: _datesk_to_date(sk).date())
+
+    cols = ["Date", "CountyName", "IncidentTypeName", "SeverityLevel",
+            "DetectionTimeHours", "EscalationTimeHours", "ResponseTimeHours"]
+    return merged[cols].sort_values("Date", ascending=False)

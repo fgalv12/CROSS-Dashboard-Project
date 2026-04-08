@@ -2,6 +2,31 @@
 
 All notable changes to the CROSS Dashboard will be documented in this file.
 
+## [0.2.0] - 2026-04-06
+
+### Added
+
+- **County drill-down view** — select a county below the map to see a tabbed detail panel with:
+  - Facilities tab: horizontal ICU occupancy bars color-coded by stress level
+  - Inventory tab: per-item inventory levels over time
+  - Incidents tab: sortable table of incident events
+  - Alert History tab: color-coded daily alert status timeline
+- **Facility drill-down view** — select a facility within a county to see:
+  - ICU occupancy trend with 85% threshold line
+  - Staff fill rate trend
+  - Bed occupancy stacked area chart (occupied vs total)
+- **Transfer Tracking panel** — Sankey diagram showing inter-county resource flows:
+  - Links color-coded by delay (green/orange/red)
+  - Adjustable top-N filter to control diagram density
+  - Summary statistics: total transfers, quantity, avg delay, delayed count
+- **Incident Timeline panel** — filterable incident event table with:
+  - Stacked severity bar chart
+  - Filters for incident type, severity level, and county
+  - Sortable columns with formatted time values
+- **New data functions** (`utils/metrics.py`): `get_county_detail()`, `get_county_facility_capacity()`, `get_county_inventory()`, `get_county_incidents()`, `get_county_alert_timeline()`, `get_facility_detail()`, `get_transfer_flows()`, `get_incident_timeline()`
+- **New chart functions** (`utils/charts.py`): `make_facility_capacity_bars()`, `make_facility_icu_trend()`, `make_facility_staff_trend()`, `make_facility_bed_occupancy()`, `make_county_inventory_detail()`, `make_alert_timeline()`, `make_transfer_sankey()`, `make_incident_severity_chart()`
+- **Facility lookup** (`utils/data_loader.py`): `get_facilities()` for county-scoped facility queries
+
 ## [0.1.0] - 2026-03-20
 
 ### Added

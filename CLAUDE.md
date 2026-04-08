@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **CROSS Dashboard** (Crisis Response & Operational Statewide Status) is a state-level analytics dashboard for crisis response leaders. It provides near real-time visibility into crisis readiness, response performance, and resource movement during public health emergencies or statewide crises.
 
-Prepared by Francisco Galvez (Oracle Health HDI Solution Engineer Intern). This is currently in the **design/planning phase** — no production code exists yet.
+Prepared by Francisco Galvez (Oracle Health HDI Solution Engineer Intern). Milestones 1-3 are complete — the dashboard is fully functional with drill-down views.
 
 ## Key Documents
 
@@ -19,12 +19,16 @@ Prepared by Francisco Galvez (Oracle Health HDI Solution Engineer Intern). This 
 - Update files in the docs folder after major milestones and major additions to the project.
 - Use the /update-docs-and-commit slash command when making git commits.
 
-## Dashboard Architecture (Four Panels)
+## Dashboard Architecture (Seven Panels + AI)
 
-1. **Executive Snapshot** — Top-level KPIs: Total Active Incidents, ICU Capacity %, Avg Response Time, Resource Deployment Lag, Counties in Alert Status
-2. **Geographic View** — Map with incident density heatmap, hospital capacity overlay, severity color-coding (Normal/Watch/Alert/Critical)
-3. **Logistics & Operations** — PPE inventory trends, staff availability by region, equipment transfers between counties, average supply delays
-4. **Emerging Threat Panel** — 30/60/90 day trend lines, spike detection flags, trending-upward counties list
+1. **AI Briefing** — On-demand streaming executive summary powered by Claude Sonnet 4 with 1/7/30-day lookback
+2. **Executive Snapshot** — Top-level KPIs: Total Active Incidents, ICU Capacity %, Avg Response Time, Resource Deployment Lag, Counties in Alert Status (with day-over-day deltas)
+3. **Geographic View** — Choropleth map with selectable color metrics (ICU %, incidents, stress score, alert status) + county drill-down selector
+4. **County Detail View** — Tabbed panel (Facilities, Inventory, Incidents, Alert History) with nested facility drill-down showing ICU trend, staff fill rate, bed occupancy
+5. **Transfer Tracking** — Sankey diagram of inter-county resource flows with delay color-coding and summary statistics
+6. **Logistics & Operations** — PPE inventory trends, staff availability by region, equipment transfers between counties, average supply delays
+7. **Emerging Threat Panel** — 30-day trend lines with confidence bands, anomaly detection, alert status donut, critical county table
+8. **Incident Timeline** — Filterable table of individual events with severity chart, searchable by type/severity/county
 
 ## Architecture Overview
 
@@ -32,20 +36,26 @@ Prepared by Francisco Galvez (Oracle Health HDI Solution Engineer Intern). This 
 
 ```
 CROSS Dashboard Project/
-├── app.py                                # Streamlit entry point
-├── cross_situational_awareness_agent.py  # AI agent (existing, also importable)
+├── app.py                                # Streamlit entry point (7 panels + AI)
+├── cross_situational_awareness_agent.py  # AI agent (standalone CLI + importable)
 ├── data/
-│   └── KS_CROSS_mock_dataset.xlsx        # Source dataset
+│   ├── KS_CROSS_mock_dataset.xlsx        # Source dataset
+│   └── kansas_counties.geojson           # County boundary polygons (TIGER/Line)
 ├── utils/
-│   ├── data_loader.py                    # Load + cache + join Excel sheets
-│   ├── metrics.py                        # KPI computation, snapshot, changes, trends
-│   └── charts.py                         # Plotly chart builder functions
+│   ├── data_loader.py                    # Load + cache + join + filter Excel sheets
+│   ├── metrics.py                        # KPI computation, drill-down metrics, AI prompts
+│   ├── charts.py                         # Plotly chart builder functions (16 chart types)
+│   └── faq_agent.py                      # OpenAI Agent SDK FAQ assistant
 ├── .streamlit/
 │   ├── config.toml                       # Theme, layout settings
-│   └── secrets.toml                      # ANTHROPIC_API_KEY (not committed)
+│   └── secrets.toml                      # API keys (not committed)
+├── docs/
+│   ├── architecture.md                   # System architecture documentation
+│   ├── changelog.md                      # Change history
+│   └── project_status.md                 # Milestone tracking
 ├── requirements.txt                      # anthropic, pandas, openpyxl, streamlit, plotly
-├── project_spec.md                       # This file
-└── CLAUDE.md                            # AI coding assistant context
+├── project_spec.md                       # Full product specification
+└── CLAUDE.md                             # AI coding assistant context
 ```
 
 **Data flow:**
@@ -66,8 +76,12 @@ Filtered DataFrames
     │
     ├──▶ KPI cards (aggregated scalars)
     ├──▶ Choropleth map (county-level metrics)
+    ├──▶ County drill-down → facility-level ICU/staffing, inventory, incidents, alerts
+    │       └──▶ Facility drill-down → ICU trend, staff fill rate, bed occupancy
+    ├──▶ Transfer Sankey (inter-county resource flows with delay coloring)
     ├──▶ Time-series charts (daily aggregates over selected window)
-    ├──▶ Trend analysis (30/60/90-day stats + anomaly detection)
+    ├──▶ Trend analysis (30-day stats + anomaly detection)
+    ├──▶ Incident timeline (filterable event table with severity chart)
     │
     └──▶ AI Agent
             │
@@ -150,9 +164,9 @@ python3 cross_situational_awareness_agent.py --raw
 - Validate and sanitize all user input
 
 **Code Quality**
-- TypeScript strict mode
-- Run `npm run lint` before committing
-- No `any` types without justification
+- Follow PEP 8 conventions
+- Type hints for function signatures
+- Test locally before committing
 
 ## Repository Etiquette
 
@@ -165,9 +179,8 @@ python3 cross_situational_awareness_agent.py --raw
 1. Create a new branch: `git checkout -b feature/your-feature-name`
 2. Develop and commit on the feature branch
 3. Test locally before pushing:
-    - `npm run dev` - start dev server at localhost:3000
-    - `npm run lint` - check for linting errors
-    - `npm run build` - production build to catch type errors
+    - `streamlit run app.py` - start dev server at localhost:8501
+    - Verify all panels render without errors
 4. Push the branch: `git push -u origin feature/your-feature-name`
 5. Create a PR to merge into `main`
 6. Use the `/update-docs-and-commit` slash command for commits - this ensures docs are updated alongside code changes
@@ -182,15 +195,18 @@ python3 cross_situational_awareness_agent.py --raw
 - Include description of what changed and why
 
 **Before pushing:**
-1. Run `npm run lint`
-2. Run `npm run build` to catch type errors
+1. Run `streamlit run app.py` and verify all panels load
+2. Check for Python syntax errors
 
 ## Commands
 
 ```bash
 # Development
-npm run dev         # Start dev server at localhost:3000
-npm run build       # Production build (also catches type errors)
-npm run start       # Run production build locally
-npm run lint        # ESLint check
+pip install -r requirements.txt   # Install dependencies
+streamlit run app.py              # Start dashboard at localhost:8501
+
+# AI Agent (standalone)
+python3 cross_situational_awareness_agent.py              # Latest date briefing
+python3 cross_situational_awareness_agent.py --raw         # JSON output only
+python3 cross_situational_awareness_agent.py --lookback 7  # 7-day comparison
 ```
