@@ -75,15 +75,17 @@ Integrate the AI agent directly into the dashboard as a streaming panel. Instead
 
 ---
 
-**Milestone 4 — Alerting and Thresholds**
+**Milestone 4 — Alerting and Thresholds** *(Completed 2026-04-09)*
 
-| Capability | Detail |
-|---|---|
-| **Configurable alert thresholds** | Users set thresholds (e.g., ICU > 90%, PPE < 5 days on hand) that trigger visual indicators |
-| **Alert history** | Timeline showing when counties entered/exited each alert status |
-| **Daily digest export** | Generate and download a PDF or Markdown briefing for email distribution |
+| Capability | Detail | Status |
+|---|---|---|
+| **Configurable alert thresholds** | Users set thresholds (e.g., ICU > 90%, PPE < 5 days on hand) that trigger visual indicators | Done |
+| **Alert history** | Timeline showing when counties entered/exited each alert status | Done |
+| **Daily digest export** | Generate and download a PDF or Markdown briefing for email distribution | Done |
 
 **Definition of done:** A user can configure their own alert thresholds and receive a daily digest without opening the dashboard.
+
+**Implementation notes:** 6 configurable thresholds stored in Streamlit session state. Threshold Alerts panel (collapsed expander) shows breach summary, county breach table, and interactive heatmap. Daily digest available as Markdown and PDF downloads in the AI Briefing panel. Panel reorganization collapses Transfer Tracking, Incident Timeline, and Threshold Alerts into expanders to reduce information overload.
 
 ---
 

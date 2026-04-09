@@ -73,6 +73,7 @@ def make_choropleth(
                 "CountyFIPS5": False,
                 "ICUCapacityPct": ":.1f",
                 "ActiveIncidents": True,
+                **({"Breaches": True} if "Breaches" in county_df.columns else {}),
             },
         )
         fig.update_coloraxes(
@@ -108,6 +109,8 @@ def make_choropleth(
             hover_data_dict["ActiveIncidents"] = True
         if "AlertStatus" in county_df.columns:
             hover_data_dict["AlertStatus"] = True
+        if "Breaches" in county_df.columns:
+            hover_data_dict["Breaches"] = True
 
         fig = px.choropleth(
             county_df,
@@ -138,7 +141,7 @@ def make_choropleth(
     return fig
 
 
-def make_ppe_trend(inventory_df: pd.DataFrame) -> go.Figure:
+def make_ppe_trend(inventory_df: pd.DataFrame, ppe_threshold: float | None = None) -> go.Figure:
     """Line chart: avg EstimatedDaysOnHand by item over time."""
     if inventory_df.empty:
         fig = go.Figure()
@@ -152,6 +155,12 @@ def make_ppe_trend(inventory_df: pd.DataFrame) -> go.Figure:
         color="ItemName",
         markers=False,
     )
+    if ppe_threshold is not None:
+        fig.add_hline(
+            y=ppe_threshold, line_dash="dash", line_color="#FF6B6B",
+            annotation_text=f"Threshold: {ppe_threshold} days",
+            annotation_font_color="#FF6B6B",
+        )
     fig.update_layout(
         xaxis_title="",
         yaxis_title="Avg Days on Hand",
@@ -160,7 +169,7 @@ def make_ppe_trend(inventory_df: pd.DataFrame) -> go.Figure:
     return _base_layout(fig, "PPE Inventory Trend")
 
 
-def make_staff_availability(staff_df: pd.DataFrame) -> go.Figure:
+def make_staff_availability(staff_df: pd.DataFrame, shortage_threshold: float | None = None) -> go.Figure:
     """Line chart: staff shortage rate by region over time."""
     if staff_df.empty:
         fig = go.Figure()
@@ -174,6 +183,12 @@ def make_staff_availability(staff_df: pd.DataFrame) -> go.Figure:
         color="RegionName",
         markers=False,
     )
+    if shortage_threshold is not None:
+        fig.add_hline(
+            y=shortage_threshold, line_dash="dash", line_color="#FF6B6B",
+            annotation_text=f"Threshold: {shortage_threshold:.0%}",
+            annotation_font_color="#FF6B6B",
+        )
     fig.update_layout(
         xaxis_title="",
         yaxis_title="Staff Shortage Rate",
@@ -203,7 +218,7 @@ def make_transfer_volume(transfer_df: pd.DataFrame) -> go.Figure:
     return _base_layout(fig, "Equipment Transfers Between Counties")
 
 
-def make_supply_delay(supply_df: pd.DataFrame) -> go.Figure:
+def make_supply_delay(supply_df: pd.DataFrame, delay_threshold: float | None = None) -> go.Figure:
     """Line chart: average supply delay days over time."""
     if supply_df.empty:
         fig = go.Figure()
@@ -217,6 +232,12 @@ def make_supply_delay(supply_df: pd.DataFrame) -> go.Figure:
         color_discrete_sequence=["#FF8C00"],
         markers=True,
     )
+    if delay_threshold is not None:
+        fig.add_hline(
+            y=delay_threshold, line_dash="dash", line_color="#FF6B6B",
+            annotation_text=f"Threshold: {delay_threshold} days",
+            annotation_font_color="#FF6B6B",
+        )
     fig.update_layout(
         xaxis_title="",
         yaxis_title="Avg Delay (days)",
@@ -224,7 +245,7 @@ def make_supply_delay(supply_df: pd.DataFrame) -> go.Figure:
     return _base_layout(fig, "Average Supply Delay")
 
 
-def make_trend_line(trend_df: pd.DataFrame, metric_col: str, label: str) -> go.Figure:
+def make_trend_line(trend_df: pd.DataFrame, metric_col: str, label: str, threshold_value: float | None = None) -> go.Figure:
     """
     30-day trend line with mean +/- 1.5 std dev bands and anomaly markers.
     """
@@ -281,6 +302,13 @@ def make_trend_line(trend_df: pd.DataFrame, metric_col: str, label: str) -> go.F
             name="Anomaly",
             marker=dict(color="#FF4444", size=10, symbol="diamond"),
         ))
+
+    if threshold_value is not None:
+        fig.add_hline(
+            y=threshold_value, line_dash="dash", line_color="#FF6B6B", line_width=2,
+            annotation_text=f"Threshold: {threshold_value}",
+            annotation_font_color="#FF6B6B",
+        )
 
     fig.update_layout(
         xaxis_title="",
@@ -378,7 +406,7 @@ def make_facility_capacity_bars(facility_df: pd.DataFrame, datesk: int) -> go.Fi
     return fig
 
 
-def make_facility_icu_trend(facility_df: pd.DataFrame) -> go.Figure:
+def make_facility_icu_trend(facility_df: pd.DataFrame, icu_threshold: float = 85.0) -> go.Figure:
     """Line chart of ICU occupancy % over time for a single facility."""
     if facility_df.empty:
         fig = go.Figure()
@@ -393,8 +421,9 @@ def make_facility_icu_trend(facility_df: pd.DataFrame) -> go.Figure:
         color_discrete_sequence=["#4FC3F7"],
     )
     fig.update_layout(xaxis_title="", yaxis_title="ICU Occupancy %")
-    fig.add_hline(y=85, line_dash="dash", line_color="#FF8C00",
-                  annotation_text="85% threshold")
+    fig.add_hline(y=icu_threshold, line_dash="dash", line_color="#FF6B6B",
+                  annotation_text=f"{icu_threshold:.0f}% threshold",
+                  annotation_font_color="#FF6B6B")
     return _base_layout(fig, "ICU Occupancy Trend")
 
 
@@ -574,3 +603,98 @@ def make_incident_severity_chart(incident_df: pd.DataFrame) -> go.Figure:
         legend_title="Severity",
     )
     return _base_layout(fig, "Incidents by Severity")
+
+
+# ---------------------------------------------------------------------------
+# Milestone 4: Threshold Alert Charts
+# ---------------------------------------------------------------------------
+
+
+def make_breach_heatmap(breach_df: pd.DataFrame, metric: str) -> go.Figure:
+    """
+    Heatmap showing threshold breach status per county over time for a single metric.
+    breach_df must have columns: Date, CountyName, Metric, Breached (bool).
+    """
+    if breach_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No breach data", showarrow=False)
+        return _base_layout(fig, f"{metric} — Breach Timeline")
+
+    subset = breach_df[breach_df["Metric"] == metric].copy()
+    if subset.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No data for this metric", showarrow=False)
+        return _base_layout(fig, f"{metric} — Breach Timeline")
+
+    pivot = subset.pivot_table(
+        index="CountyName", columns="Date", values="Breached",
+        aggfunc="max", fill_value=False,
+    ).astype(int)
+
+    # Only show counties that have at least one breach
+    breached_counties = pivot[pivot.sum(axis=1) > 0]
+    if breached_counties.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No counties breaching this threshold",
+            showarrow=False, font=dict(size=14),
+        )
+        return _base_layout(fig, f"{metric} — Breach Timeline")
+
+    # Sort by total breach days descending
+    breached_counties = breached_counties.loc[
+        breached_counties.sum(axis=1).sort_values(ascending=True).index
+    ]
+
+    fig = go.Figure(go.Heatmap(
+        z=breached_counties.values,
+        x=[str(d) for d in breached_counties.columns],
+        y=breached_counties.index.tolist(),
+        colorscale=[[0, "rgba(46,139,87,0.3)"], [1, "#B22222"]],
+        showscale=False,
+        hovertemplate="County: %{y}<br>Date: %{x}<br>Breached: %{z}<extra></extra>",
+    ))
+
+    height = max(CHART_HEIGHT, len(breached_counties) * 22 + 100)
+    fig = _base_layout(fig, f"{metric} — Breach Timeline")
+    fig.update_layout(
+        height=height,
+        xaxis_title="",
+        yaxis_title="",
+        yaxis=dict(dtick=1),
+    )
+    return fig
+
+
+def make_breach_summary(active_breaches_df: pd.DataFrame) -> go.Figure:
+    """
+    Horizontal bar chart showing count of counties currently breaching each threshold.
+    active_breaches_df must have a 'Metric' column.
+    """
+    if active_breaches_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No active threshold breaches",
+            showarrow=False, font=dict(size=14, color="#2E8B57"),
+        )
+        return _base_layout(fig, "Active Breaches by Metric")
+
+    counts = active_breaches_df.groupby("Metric").size().reset_index(name="Counties")
+    counts = counts.sort_values("Counties", ascending=True)
+
+    fig = go.Figure(go.Bar(
+        y=counts["Metric"],
+        x=counts["Counties"],
+        orientation="h",
+        marker_color="#B22222",
+        text=counts["Counties"],
+        textposition="outside",
+    ))
+
+    fig = _base_layout(fig, "Active Breaches by Metric")
+    fig.update_layout(
+        xaxis_title="Counties in Breach",
+        yaxis_title="",
+        height=max(250, len(counts) * 40 + 100),
+    )
+    return fig

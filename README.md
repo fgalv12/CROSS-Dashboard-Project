@@ -12,14 +12,12 @@ Prepared by **Francisco Galvez** (Oracle Health HDI Solution Engineer Intern).
 
 | Panel | Description |
 |---|---|
-| **Executive Snapshot** | Top-level KPIs: Active Incidents, ICU Capacity %, Avg Response Time, Resource Deployment Lag, Counties in Alert Status — with day-over-day deltas |
-| **Geographic View** | Interactive Kansas choropleth map with selectable color metrics (ICU capacity, incidents, stress score, alert status) |
-| **County Drill-Down** | Select a county below the map to view facility-level ICU/staffing, inventory by item, incident history, and alert status timeline — with nested facility detail views |
-| **Transfer Tracking** | Sankey diagram showing inter-county resource flows with delay color-coding, adjustable top-N filter, and summary statistics |
-| **Logistics & Operations** | PPE inventory trends, staff availability by region, equipment transfer volumes, average supply delays |
-| **Emerging Threats** | 30-day trend lines with confidence bands, anomaly detection markers, alert status donut chart, and critical county table |
-| **Incident Timeline** | Filterable table of individual incident events with severity chart, searchable by type, severity, and county |
-| **AI Briefing** | On-demand executive summary powered by Claude Sonnet 4 — streams a plain-language briefing of what changed, what's abnormal, and what needs attention |
+| **Executive Snapshot** | Top-level KPIs with day-over-day deltas and threshold breach highlighting; collapsible Threshold Alerts subsection with breach summary, county breach table, and breach timeline heatmap |
+| **Geographic View** | Interactive Kansas choropleth map with selectable color metrics and threshold breach info in hover data; collapsible Transfer Tracking subsection (Sankey diagram); county drill-down with tabbed detail views |
+| **County Drill-Down** | Select a county below the map to view facility-level ICU/staffing, inventory by item, incident history, and alert status timeline — with nested facility detail views and threshold breach indicators |
+| **Logistics & Operations** | PPE inventory trends, staff availability by region, equipment transfer volumes, average supply delays — all with configurable threshold reference lines |
+| **Emerging Threats** | 30-day trend lines with confidence bands, anomaly detection markers, threshold reference lines, alert status donut chart, critical county table, and collapsible Incident Timeline subsection |
+| **AI Briefing** | On-demand executive summary powered by Claude Sonnet 4 with streaming response; daily digest export in Markdown and PDF formats |
 
 ## Tech Stack
 
@@ -73,8 +71,8 @@ CROSS Dashboard Project/
 │   └── kansas_counties.geojson           # County boundary polygons
 ├── utils/
 │   ├── data_loader.py                    # Load, cache, join, and filter Excel sheets
-│   ├── metrics.py                        # KPI computation, snapshots, trends, drill-down metrics, AI prompts
-│   ├── charts.py                         # Plotly chart builder functions (16 chart types)
+│   ├── metrics.py                        # KPI computation, snapshots, trends, drill-down metrics, threshold evaluation, digest export
+│   ├── charts.py                         # Plotly chart builder functions (18 chart types)
 │   └── faq_agent.py                      # OpenAI Agent SDK FAQ assistant
 ├── .streamlit/
 │   └── config.toml                       # Theme and layout settings
@@ -115,15 +113,17 @@ python3 cross_situational_awareness_agent.py --date 2026-02-15 --lookback 7
 python3 cross_situational_awareness_agent.py --raw
 ```
 
-In the dashboard, click **Generate Briefing** in the AI panel to get a streaming executive summary scoped to your active filters.
+In the dashboard, click **Generate Briefing** in the AI panel to get a streaming executive summary scoped to your active filters. Use the **Download Markdown** or **Download PDF** buttons to export a daily digest for email distribution.
 
 ## Filters
 
 All panels respond to sidebar filters:
+
 - **Date range** — constrain the analysis window
 - **Region** — filter to one or more of Kansas's 6 regions
 - **County** — cascading filter (narrows based on selected regions)
 - **Incident type** — filter by emergency category
+- **Alert thresholds** — configure custom thresholds (ICU %, response time, PPE days, staff shortage, supply delay, stress score) that trigger visual indicators across all panels
 
 ## Drill-Down Navigation
 
@@ -140,8 +140,9 @@ The **Transfer Tracking** panel shows a Sankey diagram of inter-county resource 
 - [x] ~~County and facility drilldown views~~
 - [x] ~~Resource transfer Sankey diagrams~~
 - [x] ~~Incident event timeline~~
-- [ ] Configurable alert thresholds
-- [ ] PDF/Markdown daily digest export
+- [x] ~~Configurable alert thresholds with visual indicators~~
+- [x] ~~Threshold breach timeline and alert history~~
+- [x] ~~PDF/Markdown daily digest export~~
 - [ ] Role-based access controls (RBAC)
 - [ ] Multi-state scalability
 - [ ] Real-time data feed integration

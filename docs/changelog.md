@@ -2,6 +2,41 @@
 
 All notable changes to the CROSS Dashboard will be documented in this file.
 
+## [0.3.0] - 2026-04-09
+
+### Added
+
+- **Configurable alert thresholds** — sidebar expander with 6 user-adjustable thresholds:
+  - ICU Capacity % (>= 90%), Avg Response Time (>= 4 hrs), PPE Days on Hand (<= 5 days),
+    Staff Shortage Rate (>= 15%), Supply Delay (>= 3 days), Capacity Stress Score (>= 0.7)
+  - Reset to Defaults button with proper Streamlit session state handling
+- **Visual breach indicators** across all panels:
+  - Red border + threshold label on KPI cards (Executive Snapshot and County Detail)
+  - Dashed threshold reference lines on PPE trend, staff availability, supply delay, trend line, and facility ICU charts
+  - Breach info column in choropleth map hover data
+- **Threshold Alerts panel** (collapsed expander under Executive Snapshot):
+  - Horizontal bar chart summarizing active breaches by metric
+  - Sortable county-level breach table (county, region, metric, actual value, threshold limit)
+  - Interactive breach timeline heatmap showing per-county threshold transitions over time
+- **Daily digest export** — download buttons in AI Briefing panel:
+  - Markdown (.md) export with KPI snapshot, threshold breaches, county-level breach table, alert distribution, and AI briefing
+  - PDF export via fpdf2 with formatted tables, branded headers, and clean layout
+- **New metric functions** (`utils/metrics.py`): `evaluate_thresholds()`, `evaluate_county_thresholds()`, `get_threshold_breach_timeline()`, `get_active_breaches()`, `build_daily_digest_md()`, `build_daily_digest_pdf()`
+- **New chart functions** (`utils/charts.py`): `make_breach_heatmap()`, `make_breach_summary()`
+- **New dependency**: `fpdf2>=2.7.0` for PDF generation
+
+### Changed
+
+- **Panel reorganization** for reduced information overload:
+  - Transfer Tracking collapsed into expander under Geographic View
+  - Incident Timeline collapsed into expander under Emerging Threats
+  - Threshold Alerts collapsed into expander under Executive Snapshot
+- Chart functions now accept optional threshold parameters (all backward-compatible with `None` defaults):
+  - `make_ppe_trend(ppe_threshold=)`, `make_staff_availability(shortage_threshold=)`,
+    `make_supply_delay(delay_threshold=)`, `make_trend_line(threshold_value=)`,
+    `make_facility_icu_trend(icu_threshold=)` (was hardcoded at 85%)
+- Dashboard version bumped to v1.2
+
 ## [0.2.0] - 2026-04-06
 
 ### Added

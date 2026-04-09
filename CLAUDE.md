@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **CROSS Dashboard** (Crisis Response & Operational Statewide Status) is a state-level analytics dashboard for crisis response leaders. It provides near real-time visibility into crisis readiness, response performance, and resource movement during public health emergencies or statewide crises.
 
-Prepared by Francisco Galvez (Oracle Health HDI Solution Engineer Intern). Milestones 1-3 are complete — the dashboard is fully functional with drill-down views.
+Prepared by Francisco Galvez (Oracle Health HDI Solution Engineer Intern). Milestones 1-4 are complete — the dashboard is fully functional with drill-down views, configurable alert thresholds, threshold breach tracking, and daily digest export.
 
 ## Key Documents
 
@@ -19,16 +19,14 @@ Prepared by Francisco Galvez (Oracle Health HDI Solution Engineer Intern). Miles
 - Update files in the docs folder after major milestones and major additions to the project.
 - Use the /update-docs-and-commit slash command when making git commits.
 
-## Dashboard Architecture (Seven Panels + AI)
+## Dashboard Architecture (Panels + AI)
 
-1. **AI Briefing** — On-demand streaming executive summary powered by Claude Sonnet 4 with 1/7/30-day lookback
-2. **Executive Snapshot** — Top-level KPIs: Total Active Incidents, ICU Capacity %, Avg Response Time, Resource Deployment Lag, Counties in Alert Status (with day-over-day deltas)
-3. **Geographic View** — Choropleth map with selectable color metrics (ICU %, incidents, stress score, alert status) + county drill-down selector
-4. **County Detail View** — Tabbed panel (Facilities, Inventory, Incidents, Alert History) with nested facility drill-down showing ICU trend, staff fill rate, bed occupancy
-5. **Transfer Tracking** — Sankey diagram of inter-county resource flows with delay color-coding and summary statistics
-6. **Logistics & Operations** — PPE inventory trends, staff availability by region, equipment transfers between counties, average supply delays
-7. **Emerging Threat Panel** — 30-day trend lines with confidence bands, anomaly detection, alert status donut, critical county table
-8. **Incident Timeline** — Filterable table of individual events with severity chart, searchable by type/severity/county
+1. **AI Briefing** — On-demand streaming executive summary powered by Claude Sonnet 4 with 1/7/30-day lookback; daily digest export (Markdown + PDF)
+2. **Executive Snapshot** — Top-level KPIs with day-over-day deltas and threshold breach highlighting; collapsible Threshold Alerts subsection (breach summary chart, county breach table, breach timeline heatmap)
+3. **Geographic View** — Choropleth map with selectable color metrics (ICU %, incidents, stress score, alert status) + threshold breach info in hover; collapsible Transfer Tracking subsection (Sankey diagram); county drill-down selector
+4. **County Detail View** — Tabbed panel (Facilities, Inventory, Incidents, Alert History) with nested facility drill-down; KPI cards show threshold breach indicators
+5. **Logistics & Operations** — PPE inventory trends, staff availability by region, equipment transfers between counties, average supply delays — all with configurable threshold reference lines
+6. **Emerging Threat Panel** — 30-day trend lines with confidence bands, anomaly detection, threshold reference lines, alert status donut, critical county table; collapsible Incident Timeline subsection
 
 ## Architecture Overview
 
@@ -43,8 +41,8 @@ CROSS Dashboard Project/
 │   └── kansas_counties.geojson           # County boundary polygons (TIGER/Line)
 ├── utils/
 │   ├── data_loader.py                    # Load + cache + join + filter Excel sheets
-│   ├── metrics.py                        # KPI computation, drill-down metrics, AI prompts
-│   ├── charts.py                         # Plotly chart builder functions (16 chart types)
+│   ├── metrics.py                        # KPI computation, drill-down metrics, threshold evaluation, digest export, AI prompts
+│   ├── charts.py                         # Plotly chart builder functions (18 chart types)
 │   └── faq_agent.py                      # OpenAI Agent SDK FAQ assistant
 ├── .streamlit/
 │   ├── config.toml                       # Theme, layout settings
@@ -53,7 +51,7 @@ CROSS Dashboard Project/
 │   ├── architecture.md                   # System architecture documentation
 │   ├── changelog.md                      # Change history
 │   └── project_status.md                 # Milestone tracking
-├── requirements.txt                      # anthropic, pandas, openpyxl, streamlit, plotly
+├── requirements.txt                      # anthropic, pandas, openpyxl, streamlit, plotly, fpdf2
 ├── project_spec.md                       # Full product specification
 └── CLAUDE.md                             # AI coding assistant context
 ```
@@ -82,6 +80,16 @@ Filtered DataFrames
     ├──▶ Time-series charts (daily aggregates over selected window)
     ├──▶ Trend analysis (30-day stats + anomaly detection)
     ├──▶ Incident timeline (filterable event table with severity chart)
+    │
+    ├──▶ Threshold Evaluation (configurable via sidebar)
+    │       ├── evaluate_thresholds()           → Statewide breach check
+    │       ├── evaluate_county_thresholds()    → Per-county breach check
+    │       ├── get_active_breaches()           → Current breach table
+    │       └── get_threshold_breach_timeline() → Historical breach heatmap
+    │
+    ├──▶ Daily Digest Export
+    │       ├── build_daily_digest_md() → Markdown report
+    │       └── build_daily_digest_pdf()→ PDF report (fpdf2)
     │
     └──▶ AI Agent
             │

@@ -41,6 +41,12 @@ __all__ = [
     "get_staff_by_region",
     "get_transfer_summary",
     "build_briefing_prompt",
+    "evaluate_thresholds",
+    "evaluate_county_thresholds",
+    "get_threshold_breach_timeline",
+    "get_active_breaches",
+    "build_daily_digest_md",
+    "build_daily_digest_pdf",
 ]
 
 
@@ -314,6 +320,182 @@ def build_briefing_prompt(
 # ---------------------------------------------------------------------------
 
 
+def _check_breach(actual: float, threshold_value: float, direction: str) -> bool:
+    """Check if an actual value breaches a threshold given a direction."""
+    if direction == ">=":
+        return actual >= threshold_value
+    elif direction == "<=":
+        return actual <= threshold_value
+    return False
+
+
+def evaluate_thresholds(snapshot: dict, thresholds: dict) -> dict:
+    """
+    Evaluate which thresholds are breached for a statewide snapshot.
+    Returns dict keyed by threshold key with breach details.
+    """
+    # Map snapshot keys to threshold keys
+    mapping = {
+        "icu_capacity_pct": "avg_icu_capacity_pct",
+        "avg_response_time": "avg_response_time_hours",
+        "ppe_days_on_hand": "avg_ppe_days_on_hand",
+        "staff_shortage_rate": "avg_staff_shortage_rate",
+        "supply_delay_days": "avg_supply_delay_days",
+        "capacity_stress_score": "avg_capacity_stress_score",
+    }
+
+    results = {}
+    for thresh_key, snap_key in mapping.items():
+        if thresh_key not in thresholds:
+            continue
+        thresh = thresholds[thresh_key]
+        actual = snapshot.get(snap_key, 0)
+        if actual is None:
+            actual = 0
+        results[thresh_key] = {
+            "breached": _check_breach(float(actual), thresh["value"], thresh["direction"]),
+            "actual": float(actual),
+            "threshold": thresh["value"],
+            "direction": thresh["direction"],
+            "label": thresh["label"],
+        }
+    return results
+
+
+def evaluate_county_thresholds(county_info: dict, thresholds: dict) -> dict:
+    """
+    Evaluate which thresholds are breached for a single county detail dict.
+    Returns dict keyed by threshold key with breach details.
+    """
+    # Map county_info keys to threshold keys
+    mapping = {
+        "icu_capacity_pct": "icu_capacity_pct",
+        "avg_response_time": "avg_response_time",
+        "ppe_days_on_hand": "ppe_days_on_hand",
+        "staff_shortage_rate": "staff_shortage_rate",
+        "capacity_stress_score": "capacity_stress_score",
+    }
+
+    results = {}
+    for thresh_key, county_key in mapping.items():
+        if thresh_key not in thresholds:
+            continue
+        thresh = thresholds[thresh_key]
+        actual = county_info.get(county_key, 0)
+        if actual is None:
+            actual = 0
+        results[thresh_key] = {
+            "breached": _check_breach(float(actual), thresh["value"], thresh["direction"]),
+            "actual": float(actual),
+            "threshold": thresh["value"],
+            "direction": thresh["direction"],
+            "label": thresh["label"],
+        }
+    return results
+
+
+def get_threshold_breach_timeline(
+    data: dict, start_datesk: int, end_datesk: int, thresholds: dict
+) -> pd.DataFrame:
+    """
+    Evaluate custom thresholds across all counties over a date range.
+    Returns DataFrame with columns:
+        Date, DateSK, CountySK, CountyName, RegionName, Metric, Breached, Value, Threshold
+    One row per county per day per threshold metric.
+    """
+    dcm = data["daily_county"]
+    window = dcm[(dcm["DateSK"] >= start_datesk) & (dcm["DateSK"] <= end_datesk)].copy()
+    if window.empty:
+        return pd.DataFrame()
+
+    counties = data["counties"][["CountySK", "CountyName"]]
+    regions = data["regions"][["RegionSK", "RegionName"]]
+    window = window.merge(counties, on="CountySK", how="left")
+    window = window.merge(regions, on="RegionSK", how="left")
+
+    # Map threshold keys to DataFrame columns
+    col_map = {
+        "icu_capacity_pct": "ICUCapacityPct",
+        "avg_response_time": "AvgResponseTimeHours",
+        "ppe_days_on_hand": "PPEDaysOnHand",
+        "staff_shortage_rate": "StaffShortageRate",
+        "supply_delay_days": "AvgSupplyDelayDays",
+        "capacity_stress_score": "CapacityStressScore",
+    }
+
+    rows = []
+    for thresh_key, col_name in col_map.items():
+        if thresh_key not in thresholds or col_name not in window.columns:
+            continue
+        t = thresholds[thresh_key]
+        vals = window[col_name]
+        breached = vals.apply(lambda v: _check_breach(float(v), t["value"], t["direction"]))
+
+        subset = window[["DateSK", "CountySK", "CountyName", "RegionName"]].copy()
+        subset["Date"] = subset["DateSK"].apply(lambda sk: _datesk_to_date(sk).date())
+        subset["Metric"] = t["label"]
+        subset["Breached"] = breached
+        subset["Value"] = vals.values
+        subset["Threshold"] = t["value"]
+        rows.append(subset)
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.concat(rows, ignore_index=True).sort_values(["Date", "CountyName", "Metric"])
+
+
+def get_active_breaches(
+    data: dict, datesk: int, thresholds: dict
+) -> pd.DataFrame:
+    """
+    Return currently active threshold breaches for a single date.
+    Returns DataFrame with columns:
+        CountyName, RegionName, Metric, Value, Threshold, Direction
+    Only includes rows where a breach is active.
+    """
+    dcm = data["daily_county"]
+    day = dcm[dcm["DateSK"] == datesk].copy()
+    if day.empty:
+        return pd.DataFrame()
+
+    counties = data["counties"][["CountySK", "CountyName"]]
+    regions = data["regions"][["RegionSK", "RegionName"]]
+    day = day.merge(counties, on="CountySK", how="left")
+    day = day.merge(regions, on="RegionSK", how="left")
+
+    col_map = {
+        "icu_capacity_pct": "ICUCapacityPct",
+        "avg_response_time": "AvgResponseTimeHours",
+        "ppe_days_on_hand": "PPEDaysOnHand",
+        "staff_shortage_rate": "StaffShortageRate",
+        "supply_delay_days": "AvgSupplyDelayDays",
+        "capacity_stress_score": "CapacityStressScore",
+    }
+
+    rows = []
+    for thresh_key, col_name in col_map.items():
+        if thresh_key not in thresholds or col_name not in day.columns:
+            continue
+        t = thresholds[thresh_key]
+        for _, row in day.iterrows():
+            val = float(row[col_name])
+            if _check_breach(val, t["value"], t["direction"]):
+                rows.append({
+                    "CountyName": row["CountyName"],
+                    "RegionName": row["RegionName"],
+                    "Metric": t["label"],
+                    "Value": round(val, 2),
+                    "Threshold": t["value"],
+                    "Direction": t["direction"],
+                })
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.DataFrame(rows).sort_values(["Metric", "CountyName"])
+
+
 def get_county_detail(data: dict, county_sk: int, datesk: int) -> dict:
     """Single-county snapshot with name, region, alert status, and key KPIs."""
     dcm = data["daily_county"]
@@ -529,3 +711,285 @@ def get_incident_timeline(
     cols = ["Date", "CountyName", "IncidentTypeName", "SeverityLevel",
             "DetectionTimeHours", "EscalationTimeHours", "ResponseTimeHours"]
     return merged[cols].sort_values("Date", ascending=False)
+
+
+# ---------------------------------------------------------------------------
+# Milestone 4: Daily Digest Export
+# ---------------------------------------------------------------------------
+
+
+def build_daily_digest_md(
+    date_label: str,
+    snapshot: dict,
+    kpi_cards: list[dict],
+    breach_results: dict,
+    active_breaches_df: pd.DataFrame,
+    briefing_text: str | None = None,
+    active_filters: dict | None = None,
+) -> str:
+    """
+    Generate a Markdown daily digest report suitable for email distribution.
+    """
+    lines = []
+    lines.append("# CROSS Daily Situational Digest")
+    lines.append(f"**Date:** {date_label}")
+    lines.append(f"**Generated:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+    lines.append("")
+
+    if active_filters:
+        parts = []
+        if active_filters.get("regions"):
+            parts.append(f"Regions: {', '.join(active_filters['regions'])}")
+        if active_filters.get("counties"):
+            parts.append(f"Counties: {', '.join(active_filters['counties'])}")
+        if active_filters.get("incident_types"):
+            parts.append(f"Incident Types: {', '.join(active_filters['incident_types'])}")
+        if parts:
+            lines.append(f"**Filters:** {'; '.join(parts)}")
+            lines.append("")
+
+    lines.append("---")
+    lines.append("")
+
+    # Executive KPIs
+    lines.append("## Executive Snapshot")
+    lines.append("")
+    lines.append("| Metric | Value | Change |")
+    lines.append("|--------|-------|--------|")
+    for card in kpi_cards:
+        delta = card["delta"] if card["delta"] else "—"
+        lines.append(f"| {card['label']} | {card['value']} | {delta} |")
+    lines.append("")
+
+    # Threshold breaches
+    breached_items = {k: v for k, v in breach_results.items() if v["breached"]}
+    if breached_items:
+        lines.append("## Threshold Alerts")
+        lines.append("")
+        lines.append(f"**{len(breached_items)} statewide threshold(s) breached:**")
+        lines.append("")
+        for key, b in breached_items.items():
+            lines.append(f"- **{b['label']}**: {b['actual']:.2f} (threshold: {b['direction']} {b['threshold']})")
+        lines.append("")
+
+    # Active county breaches
+    if not active_breaches_df.empty:
+        lines.append(f"### County-Level Breaches ({len(active_breaches_df)} total)")
+        lines.append("")
+        lines.append("| County | Region | Metric | Actual | Limit |")
+        lines.append("|--------|--------|--------|--------|-------|")
+        # Show top 20 to keep digest manageable
+        for _, row in active_breaches_df.head(20).iterrows():
+            lines.append(
+                f"| {row['CountyName']} | {row['RegionName']} | {row['Metric']} "
+                f"| {row['Value']:.2f} | {row['Direction']} {row['Threshold']:.2f} |"
+            )
+        if len(active_breaches_df) > 20:
+            lines.append(f"| ... | ... | ... | ... | ... |")
+            lines.append(f"*{len(active_breaches_df) - 20} additional breaches not shown.*")
+        lines.append("")
+    else:
+        lines.append("## Threshold Alerts")
+        lines.append("")
+        lines.append("No counties are currently breaching any configured thresholds.")
+        lines.append("")
+
+    # Alert status summary
+    alert_counts = snapshot.get("alert_status_counts", {})
+    if alert_counts:
+        lines.append("## Alert Status Distribution")
+        lines.append("")
+        for status in ["Critical", "Alert", "Watch", "Normal"]:
+            count = alert_counts.get(status, 0)
+            if count > 0:
+                lines.append(f"- **{status}:** {count} counties")
+        lines.append("")
+
+    # AI Briefing
+    if briefing_text:
+        lines.append("---")
+        lines.append("")
+        lines.append("## AI Situational Briefing")
+        lines.append("")
+        lines.append(briefing_text)
+        lines.append("")
+
+    # Footer
+    lines.append("---")
+    lines.append("")
+    lines.append("*CROSS Dashboard — Crisis Response & Operational Statewide Status*")
+    lines.append("*Prepared by Francisco Galvez (Oracle Health AI CoE)*")
+
+    return "\n".join(lines)
+
+
+def build_daily_digest_pdf(
+    date_label: str,
+    snapshot: dict,
+    kpi_cards: list[dict],
+    breach_results: dict,
+    active_breaches_df: pd.DataFrame,
+    briefing_text: str | None = None,
+    active_filters: dict | None = None,
+) -> bytes:
+    """
+    Generate a PDF daily digest report. Returns PDF as bytes.
+    Requires fpdf2 package.
+    """
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    # Title
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(178, 34, 34)
+    pdf.cell(0, 12, "CROSS Daily Situational Digest", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 6, f"Date: {date_label}  |  Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}", new_x="LMARGIN", new_y="NEXT", align="C")
+
+    if active_filters:
+        parts = []
+        if active_filters.get("regions"):
+            parts.append(f"Regions: {', '.join(active_filters['regions'])}")
+        if active_filters.get("counties"):
+            parts.append(f"Counties: {', '.join(active_filters['counties'])}")
+        if active_filters.get("incident_types"):
+            parts.append(f"Incident Types: {', '.join(active_filters['incident_types'])}")
+        if parts:
+            pdf.cell(0, 6, f"Filters: {'; '.join(parts)}", new_x="LMARGIN", new_y="NEXT", align="C")
+
+    pdf.ln(4)
+    pdf.set_draw_color(178, 34, 34)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(6)
+
+    # Executive Snapshot
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 8, "Executive Snapshot", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+
+    # KPI table
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_fill_color(139, 26, 26)
+    pdf.set_text_color(255, 255, 255)
+    col_w = [55, 40, 40]
+    headers = ["Metric", "Value", "Change"]
+    for w, h in zip(col_w, headers):
+        pdf.cell(w, 7, h, border=1, fill=True, align="C")
+    pdf.ln()
+
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(0, 0, 0)
+    for card in kpi_cards:
+        delta = card["delta"] if card["delta"] else "-"
+        pdf.cell(col_w[0], 6, card["label"], border=1)
+        pdf.cell(col_w[1], 6, card["value"], border=1, align="C")
+        pdf.cell(col_w[2], 6, str(delta), border=1, align="C")
+        pdf.ln()
+
+    pdf.ln(4)
+
+    # Threshold Alerts
+    breached_items = {k: v for k, v in breach_results.items() if v["breached"]}
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 8, "Threshold Alerts", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+
+    if breached_items:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, f"{len(breached_items)} statewide threshold(s) breached:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 9)
+        for key, b in breached_items.items():
+            pdf.cell(0, 5, f"  - {b['label']}: {b['actual']:.2f} (threshold: {b['direction']} {b['threshold']})", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+
+    if not active_breaches_df.empty:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, f"County-Level Breaches ({len(active_breaches_df)} total):", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(139, 26, 26)
+        pdf.set_text_color(255, 255, 255)
+        bcol_w = [35, 30, 35, 25, 25]
+        bheaders = ["County", "Region", "Metric", "Actual", "Limit"]
+        for w, h in zip(bcol_w, bheaders):
+            pdf.cell(w, 6, h, border=1, fill=True, align="C")
+        pdf.ln()
+
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(0, 0, 0)
+        for _, row in active_breaches_df.head(25).iterrows():
+            pdf.cell(bcol_w[0], 5, str(row["CountyName"])[:18], border=1)
+            pdf.cell(bcol_w[1], 5, str(row["RegionName"])[:16], border=1)
+            pdf.cell(bcol_w[2], 5, str(row["Metric"]), border=1)
+            pdf.cell(bcol_w[3], 5, f"{row['Value']:.2f}", border=1, align="C")
+            pdf.cell(bcol_w[4], 5, f"{row['Direction']} {row['Threshold']:.2f}", border=1, align="C")
+            pdf.ln()
+        if len(active_breaches_df) > 25:
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.cell(0, 5, f"... {len(active_breaches_df) - 25} additional breaches not shown.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(46, 139, 87)
+        pdf.cell(0, 6, "No counties are currently breaching any configured thresholds.", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+
+    pdf.ln(4)
+
+    # Alert Status Distribution
+    alert_counts = snapshot.get("alert_status_counts", {})
+    if alert_counts:
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 8, "Alert Status Distribution", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "", 10)
+        for status in ["Critical", "Alert", "Watch", "Normal"]:
+            count = alert_counts.get(status, 0)
+            if count > 0:
+                pdf.cell(0, 5, f"  {status}: {count} counties", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+    # AI Briefing
+    if briefing_text:
+        pdf.set_draw_color(178, 34, 34)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 8, "AI Situational Briefing", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "", 9)
+        # Clean markdown formatting and replace Unicode characters unsupported by Helvetica
+        clean_text = briefing_text.replace("**", "").replace("##", "").replace("# ", "")
+        clean_text = (
+            clean_text
+            .replace("\u2022", "-")   # bullet •
+            .replace("\u2013", "-")   # en dash –
+            .replace("\u2014", "--")  # em dash —
+            .replace("\u2018", "'")   # left single quote '
+            .replace("\u2019", "'")   # right single quote '
+            .replace("\u201c", '"')   # left double quote "
+            .replace("\u201d", '"')   # right double quote "
+            .replace("\u2026", "...") # ellipsis …
+            .replace("\u00b7", "-")   # middle dot ·
+        )
+        # Strip any remaining non-latin1 characters
+        clean_text = clean_text.encode("latin-1", errors="replace").decode("latin-1")
+        pdf.multi_cell(0, 4.5, clean_text)
+
+    # Footer
+    pdf.ln(6)
+    pdf.set_draw_color(178, 34, 34)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 5, "CROSS Dashboard - Crisis Response & Operational Statewide Status", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.cell(0, 5, "Prepared by Francisco Galvez (Oracle Health AI CoE)", new_x="LMARGIN", new_y="NEXT", align="C")
+
+    return bytes(pdf.output())
