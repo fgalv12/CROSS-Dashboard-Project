@@ -2,7 +2,7 @@
 
 This document describes the high-level system architecture, data flow, and component relationships.
 
-**Last Updated:** 2026-04-06
+**Last Updated:** 2026-04-09
 
 ## Technology Stack
 
@@ -12,6 +12,7 @@ This document describes the high-level system architecture, data flow, and compo
 | Data Processing | Pandas / NumPy | 2.0+ / 1.24+ |
 | Visualization | Plotly | 5.18.0+ |
 | AI Integration | Anthropic SDK (Claude Sonnet 4) | 0.40.0+ |
+| PDF Export | fpdf2 | 2.7.0+ |
 | Data Source | Excel via openpyxl | 3.1.0+ |
 | Language | Python | 3.11+ |
 
@@ -29,8 +30,8 @@ CROSS Dashboard Project/
 ├── utils/
 │   ├── __init__.py
 │   ├── data_loader.py                    # Excel loading, caching, filtering, facility lookups
-│   ├── metrics.py                        # KPI computation, snapshots, trends, drill-down metrics
-│   ├── charts.py                         # Plotly chart builder functions (16 chart types)
+│   ├── metrics.py                        # KPI computation, snapshots, trends, drill-down metrics, threshold evaluation, digest export
+│   ├── charts.py                         # Plotly chart builder functions (18 chart types)
 │   └── faq_agent.py                      # OpenAI Agent SDK FAQ assistant
 ├── data/
 │   ├── KS_CROSS_mock_dataset.xlsx        # Source dataset (15 sheets, ~60K rows)
@@ -80,6 +81,16 @@ filter_data() → Filtered DataFrames
     ├──▶ get_transfer_flows()  → Sankey diagram data
     ├──▶ get_incident_timeline()→ Filterable incident event table
     │
+    ├──▶ Threshold Evaluation (configurable via sidebar)
+    │       ├── evaluate_thresholds()              → Statewide breach check
+    │       ├── evaluate_county_thresholds()        → Per-county breach check
+    │       ├── get_active_breaches()               → Current breach table
+    │       └── get_threshold_breach_timeline()     → Historical breach heatmap
+    │
+    ├──▶ Daily Digest Export
+    │       ├── build_daily_digest_md()  → Markdown report download
+    │       └── build_daily_digest_pdf() → PDF report download (fpdf2)
+    │
     └──▶ AI Agent (on demand)
             ├── Builds JSON prompt from snapshot + changes + trends
             ├── Calls Anthropic API (claude-sonnet-4, streaming)
@@ -107,14 +118,12 @@ filter_data() → Filtered DataFrames
 
 ## Dashboard Panels
 
-1. **AI Briefing** — On-demand streaming executive summary powered by Claude Sonnet 4 with configurable lookback
-2. **Executive Snapshot** — KPI cards: Active Incidents, ICU Capacity %, Avg Response Time, Deployment Lag, Counties in Alert/Critical (with day-over-day deltas)
-3. **Geographic View** — Interactive Kansas choropleth map with selectable color metrics (ICU %, incidents, stress score, alert status)
-4. **County Detail View** — Tabbed drill-down (Facilities, Inventory, Incidents, Alert History) with nested facility selector showing ICU trend, staff fill rate, bed occupancy
-5. **Transfer Tracking** — Sankey diagram of inter-county resource flows color-coded by delay status, with adjustable top-N filter and summary statistics
-6. **Logistics & Operations** — 2x2 grid: PPE inventory trends, staff availability by region, equipment transfer volumes, supply delay trends
-7. **Emerging Threats** — 30-day trend line with mean/confidence bands and anomaly markers; alert status donut chart; alert/critical county table
-8. **Incident Timeline** — Filterable incident event table with severity stacked bar chart, searchable by type, severity, and county
+1. **AI Briefing** — On-demand streaming executive summary powered by Claude Sonnet 4 with configurable lookback; daily digest export (Markdown + PDF)
+2. **Executive Snapshot** — KPI cards with day-over-day deltas and threshold breach highlighting; collapsed Threshold Alerts subsection with breach summary chart, county breach table, and breach timeline heatmap
+3. **Geographic View** — Interactive Kansas choropleth map with selectable color metrics and threshold breach info in hover data; collapsed Transfer Tracking subsection (Sankey diagram); County drill-down with tabbed detail views
+4. **County Detail View** — Tabbed drill-down (Facilities, Inventory, Incidents, Alert History) with nested facility selector; KPI cards show threshold breach indicators
+5. **Logistics & Operations** — 2x2 grid: PPE inventory trends, staff availability by region, equipment transfer volumes, supply delay trends — all with configurable threshold reference lines
+6. **Emerging Threats** — 30-day trend line with mean/confidence bands, anomaly markers, and threshold reference line; alert status donut chart; alert/critical county table; collapsed Incident Timeline subsection
 
 ## AI Integration
 
@@ -132,3 +141,6 @@ The agent computes three analysis layers (snapshot, changes, trends), passes the
 4. **Filters scope everything** — Including AI briefings, which become region/county-specific automatically
 5. **GeoJSON for Kansas counties** — US Census TIGER/Line shapefiles joined on FIPS code
 6. **Dark theme** — Dark red (#B22222) primary, dark background (#0E1117), plotly_dark template
+7. **Thresholds in session state** — No database persistence; thresholds reset on page refresh, appropriate for analytical dashboard use. Widget keys are seeded on first run to avoid Streamlit's value/key conflicts
+8. **Collapsible subsections** — Transfer Tracking, Incident Timeline, and Threshold Alerts use `st.expander` to reduce information overload while keeping content accessible
+9. **Backward-compatible chart APIs** — All threshold parameters default to `None`, so existing chart calls work without modification

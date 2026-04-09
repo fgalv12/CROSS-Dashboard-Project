@@ -1,12 +1,12 @@
 # Project Status
 
-**Last Updated:** 2026-04-06
+**Last Updated:** 2026-04-09
 
 This document describes milestones, what has been accomplished, and what's next since last time.
 
-## Current Phase: Drill-Down Views Complete (Milestone 3)
+## Current Phase: Alerting and Thresholds Complete (Milestone 4)
 
-The CROSS Dashboard has a fully functional Streamlit application with all primary panels, data pipeline, AI integration, and progressive drill-down views from KPI to facility level.
+The CROSS Dashboard has a fully functional Streamlit application with all primary panels, data pipeline, AI integration, progressive drill-down views, configurable alert thresholds with visual indicators, threshold breach tracking, and daily digest export.
 
 ## Completed Milestones
 
@@ -53,12 +53,24 @@ The CROSS Dashboard has a fully functional Streamlit application with all primar
 ### Documentation
 - [x] Populate and maintain docs folder (architecture, changelog, status)
 
-## Planned / Next Steps
+### Alerting and Thresholds (Milestone 4)
 
-### Near-Term (Milestone 4)
-- [ ] Configurable alert thresholds UI
-- [ ] Alert history timeline
-- [ ] PDF/Markdown daily digest export
+- [x] Configurable alert thresholds sidebar UI (6 metrics: ICU %, response time, PPE days, staff shortage, supply delay, stress score)
+- [x] Reset to Defaults button with proper Streamlit session state handling
+- [x] Visual breach indicators on Executive Snapshot and County Detail KPI cards (red border + threshold label)
+- [x] Threshold reference lines on 5 chart types (PPE trend, staff availability, supply delay, trend line, facility ICU)
+- [x] Breach info in choropleth map hover data
+- [x] Threshold Alerts panel (collapsed expander under Executive Snapshot) with:
+  - Active breaches summary bar chart
+  - Sortable county-level breach table
+  - Interactive breach timeline heatmap by metric
+- [x] Threshold evaluation engine (`evaluate_thresholds`, `evaluate_county_thresholds`, `get_active_breaches`, `get_threshold_breach_timeline`)
+- [x] Daily digest export with Download Markdown and Download PDF buttons
+- [x] PDF generation via fpdf2 with formatted tables, sections, and branding
+- [x] Digest includes: KPI snapshot, threshold breaches, county-level breach table, alert status distribution, AI briefing
+- [x] Panel reorganization: Transfer Tracking collapsed under Geographic View, Incident Timeline collapsed under Emerging Threats
+
+## Planned / Next Steps
 
 ### Medium-Term
 - [ ] Role-based access controls (RBAC) via Streamlit auth

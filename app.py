@@ -33,6 +33,19 @@ if "OPENAI_API_KEY" not in os.environ or not os.environ["OPENAI_API_KEY"]:
 
 import pandas as pd
 
+# ---------------------------------------------------------------------------
+# Alert Threshold Defaults
+# ---------------------------------------------------------------------------
+
+DEFAULT_THRESHOLDS = {
+    "icu_capacity_pct": {"value": 90.0, "direction": ">=", "label": "ICU Capacity %", "unit": "%"},
+    "avg_response_time": {"value": 4.0, "direction": ">=", "label": "Avg Response Time", "unit": "hrs"},
+    "ppe_days_on_hand": {"value": 5.0, "direction": "<=", "label": "PPE Days on Hand", "unit": "days"},
+    "staff_shortage_rate": {"value": 0.15, "direction": ">=", "label": "Staff Shortage Rate", "unit": ""},
+    "supply_delay_days": {"value": 3.0, "direction": ">=", "label": "Supply Delay", "unit": "days"},
+    "capacity_stress_score": {"value": 0.7, "direction": ">=", "label": "Stress Score", "unit": ""},
+}
+
 from utils.data_loader import (
     filter_data,
     get_counties,
@@ -51,6 +64,11 @@ from utils.metrics import (
     compute_changes,
     compute_snapshot,
     compute_trends,
+    evaluate_county_thresholds,
+    evaluate_thresholds,
+    build_daily_digest_md,
+    build_daily_digest_pdf,
+    get_active_breaches,
     get_county_alert_timeline,
     get_county_detail,
     get_county_facility_capacity,
@@ -63,6 +81,7 @@ from utils.metrics import (
     get_kpi_cards,
     get_staff_by_region,
     get_supply_delay_series,
+    get_threshold_breach_timeline,
     get_transfer_flows,
     get_transfer_summary,
     get_trend_series,
@@ -71,6 +90,8 @@ from utils.metrics import (
 from utils.charts import (
     make_alert_donut,
     make_alert_timeline,
+    make_breach_heatmap,
+    make_breach_summary,
     make_choropleth,
     make_county_inventory_detail,
     make_facility_bed_occupancy,
@@ -159,6 +180,77 @@ with st.sidebar:
         default=[],
         placeholder="All types",
     )
+
+    # ------------------------------------------------------------------
+    # Alert Threshold Configuration
+    # ------------------------------------------------------------------
+    st.divider()
+    st.markdown("**Alert Thresholds**")
+
+    # Initialize session state
+    if "alert_thresholds" not in st.session_state:
+        import copy
+        st.session_state.alert_thresholds = copy.deepcopy(DEFAULT_THRESHOLDS)
+
+    # Reset callback — runs before widgets are instantiated on next rerun
+    def _reset_thresholds():
+        import copy
+        st.session_state.alert_thresholds = copy.deepcopy(DEFAULT_THRESHOLDS)
+        st.session_state.thresh_icu = DEFAULT_THRESHOLDS["icu_capacity_pct"]["value"]
+        st.session_state.thresh_response = DEFAULT_THRESHOLDS["avg_response_time"]["value"]
+        st.session_state.thresh_ppe = DEFAULT_THRESHOLDS["ppe_days_on_hand"]["value"]
+        st.session_state.thresh_staff = DEFAULT_THRESHOLDS["staff_shortage_rate"]["value"]
+        st.session_state.thresh_delay = DEFAULT_THRESHOLDS["supply_delay_days"]["value"]
+        st.session_state.thresh_stress = DEFAULT_THRESHOLDS["capacity_stress_score"]["value"]
+
+    thresholds = st.session_state.alert_thresholds
+
+    # Seed widget keys on first run so number_inputs pick up defaults
+    _THRESH_WIDGET_MAP = {
+        "thresh_icu": ("icu_capacity_pct", 0.0, 100.0, 5.0, None),
+        "thresh_response": ("avg_response_time", 0.0, 24.0, 0.5, None),
+        "thresh_ppe": ("ppe_days_on_hand", 0.0, 30.0, 1.0, None),
+        "thresh_staff": ("staff_shortage_rate", 0.0, 1.0, 0.05, "%.2f"),
+        "thresh_delay": ("supply_delay_days", 0.0, 14.0, 0.5, None),
+        "thresh_stress": ("capacity_stress_score", 0.0, 1.0, 0.05, "%.2f"),
+    }
+    for wkey, (tkey, *_) in _THRESH_WIDGET_MAP.items():
+        if wkey not in st.session_state:
+            st.session_state[wkey] = thresholds[tkey]["value"]
+
+    with st.expander("Configure thresholds", expanded=False):
+        thresholds["icu_capacity_pct"]["value"] = st.number_input(
+            "ICU Capacity % (alert when >=)",
+            min_value=0.0, max_value=100.0,
+            step=5.0, key="thresh_icu",
+        )
+        thresholds["avg_response_time"]["value"] = st.number_input(
+            "Avg Response Time hrs (alert when >=)",
+            min_value=0.0, max_value=24.0,
+            step=0.5, key="thresh_response",
+        )
+        thresholds["ppe_days_on_hand"]["value"] = st.number_input(
+            "PPE Days on Hand (alert when <=)",
+            min_value=0.0, max_value=30.0,
+            step=1.0, key="thresh_ppe",
+        )
+        thresholds["staff_shortage_rate"]["value"] = st.number_input(
+            "Staff Shortage Rate (alert when >=)",
+            min_value=0.0, max_value=1.0,
+            step=0.05, format="%.2f", key="thresh_staff",
+        )
+        thresholds["supply_delay_days"]["value"] = st.number_input(
+            "Supply Delay days (alert when >=)",
+            min_value=0.0, max_value=14.0,
+            step=0.5, key="thresh_delay",
+        )
+        thresholds["capacity_stress_score"]["value"] = st.number_input(
+            "Capacity Stress Score (alert when >=)",
+            min_value=0.0, max_value=1.0,
+            step=0.05, format="%.2f", key="thresh_stress",
+        )
+
+        st.button("Reset to Defaults", key="thresh_reset", on_click=_reset_thresholds)
 
     st.divider()
     st.caption(f"Data: {min_date.date()} to {max_date.date()}")
@@ -319,6 +411,68 @@ with st.expander("\U0001f916 AI Situational Awareness Briefing", expanded=False)
     elif st.session_state.briefing_text:
         st.markdown(st.session_state.briefing_text)
 
+    # Daily Digest Export
+    st.divider()
+    st.markdown("**Export Daily Digest**")
+
+    # Compute digest inputs (uses snapshot computed later, so compute here too)
+    _digest_snapshot = compute_snapshot(filtered, end_datesk)
+    _digest_prior_sk = _prior_datesk(filtered, end_datesk, 1)
+    _digest_prior = compute_snapshot(filtered, _digest_prior_sk) if _digest_prior_sk else None
+    _digest_kpis = get_kpi_cards(_digest_snapshot, _digest_prior)
+    _digest_breaches = evaluate_thresholds(_digest_snapshot, thresholds)
+    _digest_active = get_active_breaches(filtered, end_datesk, thresholds)
+    _digest_date = str(_datesk_to_date(end_datesk).date())
+
+    _digest_filters = {}
+    if selected_region_names:
+        _digest_filters["regions"] = selected_region_names
+    if selected_county_names:
+        _digest_filters["counties"] = selected_county_names
+    if selected_incident_names:
+        _digest_filters["incident_types"] = selected_incident_names
+
+    dl_col1, dl_col2, _ = st.columns([1, 1, 3])
+
+    with dl_col1:
+        md_content = build_daily_digest_md(
+            date_label=_digest_date,
+            snapshot=_digest_snapshot,
+            kpi_cards=_digest_kpis,
+            breach_results=_digest_breaches,
+            active_breaches_df=_digest_active,
+            briefing_text=st.session_state.briefing_text,
+            active_filters=_digest_filters if _digest_filters else None,
+        )
+        st.download_button(
+            label="Download Markdown",
+            data=md_content,
+            file_name=f"CROSS_Digest_{_digest_date}.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
+
+    with dl_col2:
+        try:
+            pdf_bytes = build_daily_digest_pdf(
+                date_label=_digest_date,
+                snapshot=_digest_snapshot,
+                kpi_cards=_digest_kpis,
+                breach_results=_digest_breaches,
+                active_breaches_df=_digest_active,
+                briefing_text=st.session_state.briefing_text,
+                active_filters=_digest_filters if _digest_filters else None,
+            )
+            st.download_button(
+                label="Download PDF",
+                data=pdf_bytes,
+                file_name=f"CROSS_Digest_{_digest_date}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except ImportError:
+            st.warning("Install `fpdf2` for PDF export: `pip install fpdf2`")
+
 # ---------------------------------------------------------------------------
 # Panel 1: Executive Snapshot
 # ---------------------------------------------------------------------------
@@ -338,14 +492,93 @@ prior_snapshot = compute_snapshot(filtered, prior_sk) if prior_sk else None
 
 kpi_cards = get_kpi_cards(snapshot, prior_snapshot)
 
+# Evaluate thresholds for breach highlighting
+breach_results = evaluate_thresholds(snapshot, thresholds)
+
+# Map KPI labels to threshold keys for breach detection
+KPI_THRESHOLD_MAP = {
+    "ICU Capacity %": "icu_capacity_pct",
+    "Avg Response Time": "avg_response_time",
+    "Resource Deploy Lag": "supply_delay_days",
+}
+
 kpi_cols = st.columns(len(kpi_cards))
 for col, card in zip(kpi_cols, kpi_cards):
+    thresh_key = KPI_THRESHOLD_MAP.get(card["label"])
+    breached = thresh_key and breach_results.get(thresh_key, {}).get("breached", False)
+
+    if breached:
+        col.markdown(
+            f'<div style="border: 2px solid #B22222; border-radius: 8px; padding: 2px 6px; '
+            f'background: rgba(178,34,34,0.15);">',
+            unsafe_allow_html=True,
+        )
     col.metric(
         label=card["label"],
         value=card["value"],
         delta=card["delta"],
         delta_color=card["delta_color"],
     )
+    if breached:
+        b = breach_results[thresh_key]
+        col.markdown(
+            f'<div style="color: #FF6B6B; font-size: 0.75rem; margin-top: -0.5rem;">'
+            f'Threshold: {b["direction"]} {b["threshold"]}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+# Threshold Alerts (subsection of Executive Snapshot)
+active_breaches_df = get_active_breaches(filtered, end_datesk, thresholds)
+_breach_count = len(active_breaches_df)
+_breach_label = (
+    f"Threshold Alerts — {_breach_count} active breach{'es' if _breach_count != 1 else ''}"
+    if _breach_count > 0
+    else "Threshold Alerts — No active breaches"
+)
+
+with st.expander(_breach_label, expanded=False):
+    ta_col1, ta_col2 = st.columns([1, 2])
+
+    with ta_col1:
+        fig_breach_summary = make_breach_summary(active_breaches_df)
+        st.plotly_chart(fig_breach_summary, use_container_width=True, key="breach_summary")
+
+    with ta_col2:
+        if not active_breaches_df.empty:
+            st.dataframe(
+                active_breaches_df,
+                use_container_width=True,
+                hide_index=True,
+                height=min(_breach_count * 35 + 40, 350),
+                column_config={
+                    "CountyName": "County",
+                    "RegionName": "Region",
+                    "Metric": "Threshold",
+                    "Value": st.column_config.NumberColumn("Actual", format="%.2f"),
+                    "Threshold": st.column_config.NumberColumn("Limit", format="%.2f"),
+                    "Direction": "Dir",
+                },
+            )
+        else:
+            st.success("No counties are currently breaching any configured thresholds.")
+
+    # Breach timeline heatmap
+    breach_timeline_df = get_threshold_breach_timeline(filtered, start_datesk, end_datesk, thresholds)
+
+    if not breach_timeline_df.empty:
+        available_metrics = sorted(breach_timeline_df[breach_timeline_df["Breached"]]["Metric"].unique())
+        if available_metrics:
+            breach_metric = st.selectbox(
+                "View breach timeline for",
+                options=available_metrics,
+                key="breach_heatmap_metric",
+            )
+            fig_heatmap = make_breach_heatmap(breach_timeline_df, breach_metric)
+            st.plotly_chart(fig_heatmap, use_container_width=True, key="breach_heatmap")
+        else:
+            st.info("No threshold breaches detected in the selected date range.")
+    else:
+        st.info("No threshold data available for the selected filters.")
 
 # ---------------------------------------------------------------------------
 # Panel 2: Geographic View
@@ -371,6 +604,35 @@ map_metric = st.radio(
 )
 
 county_df = get_county_metrics_for_map(filtered, end_datesk)
+
+# Add threshold breach info per county for map hover
+if not county_df.empty:
+    COUNTY_COL_THRESH_MAP = {
+        "ICUCapacityPct": "icu_capacity_pct",
+        "AvgResponseTimeHours": "avg_response_time",
+        "PPEDaysOnHand": "ppe_days_on_hand",
+        "StaffShortageRate": "staff_shortage_rate",
+        "CapacityStressScore": "capacity_stress_score",
+    }
+
+    def _row_breaches(row):
+        breached = []
+        for col, tkey in COUNTY_COL_THRESH_MAP.items():
+            if col not in row.index or tkey not in thresholds:
+                continue
+            val = row[col]
+            if pd.isna(val):
+                continue
+            t = thresholds[tkey]
+            if t["direction"] == ">=" and val >= t["value"]:
+                breached.append(t["label"])
+            elif t["direction"] == "<=" and val <= t["value"]:
+                breached.append(t["label"])
+        return ", ".join(breached) if breached else "None"
+
+    county_df = county_df.copy()
+    county_df["Breaches"] = county_df.apply(_row_breaches, axis=1)
+
 fig_map = make_choropleth(county_df, geojson, color_col=map_metric)
 st.plotly_chart(fig_map, use_container_width=True, key="choropleth_map")
 
@@ -413,12 +675,36 @@ if selected_drill_county:
             unsafe_allow_html=True,
         )
 
-        ck1, ck2, ck3, ck4, ck5 = st.columns(5)
-        ck1.metric("Active Incidents", county_info["active_incidents"])
-        ck2.metric("ICU Capacity", f"{county_info['icu_capacity_pct']}%")
-        ck3.metric("Avg Response", f"{county_info['avg_response_time']} hrs")
-        ck4.metric("PPE Days", county_info["ppe_days_on_hand"])
-        ck5.metric("Staff Shortage", f"{county_info['staff_shortage_rate']:.0%}")
+        # Evaluate county thresholds
+        county_breaches = evaluate_county_thresholds(county_info, thresholds)
+
+        # County KPI cards with breach highlighting
+        county_kpis = [
+            ("Active Incidents", str(county_info["active_incidents"]), None),
+            ("ICU Capacity", f"{county_info['icu_capacity_pct']}%", "icu_capacity_pct"),
+            ("Avg Response", f"{county_info['avg_response_time']} hrs", "avg_response_time"),
+            ("PPE Days", str(county_info["ppe_days_on_hand"]), "ppe_days_on_hand"),
+            ("Staff Shortage", f"{county_info['staff_shortage_rate']:.0%}", "staff_shortage_rate"),
+        ]
+
+        ck_cols = st.columns(5)
+        for col, (label, value, thresh_key) in zip(ck_cols, county_kpis):
+            cb = county_breaches.get(thresh_key, {}) if thresh_key else {}
+            is_breached = cb.get("breached", False)
+
+            if is_breached:
+                col.markdown(
+                    '<div style="border: 2px solid #B22222; border-radius: 8px; padding: 2px 6px; '
+                    'background: rgba(178,34,34,0.15);">',
+                    unsafe_allow_html=True,
+                )
+            col.metric(label, value)
+            if is_breached:
+                col.markdown(
+                    f'<div style="color: #FF6B6B; font-size: 0.75rem; margin-top: -0.5rem;">'
+                    f'Threshold: {cb["direction"]} {cb["threshold"]}</div></div>',
+                    unsafe_allow_html=True,
+                )
 
         # Tabbed detail views
         tab_fac, tab_inv, tab_inc, tab_alert = st.tabs(
@@ -448,7 +734,7 @@ if selected_drill_county:
                         fc1, fc2, fc3 = st.columns(3)
                         with fc1:
                             st.plotly_chart(
-                                make_facility_icu_trend(fac_detail_df),
+                                make_facility_icu_trend(fac_detail_df, icu_threshold=thresholds["icu_capacity_pct"]["value"]),
                                 use_container_width=True, key="fac_icu",
                             )
                         with fc2:
@@ -506,33 +792,31 @@ if selected_drill_county:
             else:
                 st.info("No alert history for this county.")
 
-# ---------------------------------------------------------------------------
-# Panel: Transfer Tracking
-# ---------------------------------------------------------------------------
-
-st.markdown(
-    '<div style="background: #8B1A1A; padding: 0.4rem 1rem; border-radius: 6px; margin: 0.8rem 0 0.5rem 0;">'
-    '<h3 style="color: white; margin: 0; font-size: 1.1rem; text-align: center;">Transfer Tracking</h3></div>',
-    unsafe_allow_html=True,
-)
-
-# Scope transfers to selected county if drilling down
+# Transfer Tracking (subsection of Geographic View)
 xfer_county_sk = county_drill_options.get(selected_drill_county) if selected_drill_county else None
 transfer_flow_df = get_transfer_flows(filtered, start_datesk, end_datesk, county_sk=xfer_county_sk)
 
-if not transfer_flow_df.empty:
-    top_n_slider = st.slider("Top N transfer pairs", min_value=5, max_value=50, value=20, key="sankey_top_n")
-    fig_sankey = make_transfer_sankey(transfer_flow_df, top_n=top_n_slider)
-    st.plotly_chart(fig_sankey, use_container_width=True, key="sankey")
+_xfer_count = int(transfer_flow_df["TransferCount"].sum()) if not transfer_flow_df.empty else 0
+_xfer_label = (
+    f"Transfer Tracking — {_xfer_count:,} transfers"
+    if _xfer_count > 0
+    else "Transfer Tracking — No transfers"
+)
 
-    # Summary stats
-    ts1, ts2, ts3, ts4 = st.columns(4)
-    ts1.metric("Total Transfers", f"{transfer_flow_df['TransferCount'].sum():,}")
-    ts2.metric("Total Quantity", f"{transfer_flow_df['TotalQty'].sum():,}")
-    ts3.metric("Avg Delay", f"{transfer_flow_df['AvgDelayDays'].mean():.1f} days")
-    ts4.metric("Delayed (>3 days)", f"{(transfer_flow_df['AvgDelayDays'] > 3).sum()}")
-else:
-    st.info("No transfer data for the selected filters.")
+with st.expander(_xfer_label, expanded=False):
+    if not transfer_flow_df.empty:
+        top_n_slider = st.slider("Top N transfer pairs", min_value=5, max_value=50, value=20, key="sankey_top_n")
+        fig_sankey = make_transfer_sankey(transfer_flow_df, top_n=top_n_slider)
+        st.plotly_chart(fig_sankey, use_container_width=True, key="sankey")
+
+        # Summary stats
+        ts1, ts2, ts3, ts4 = st.columns(4)
+        ts1.metric("Total Transfers", f"{transfer_flow_df['TransferCount'].sum():,}")
+        ts2.metric("Total Quantity", f"{transfer_flow_df['TotalQty'].sum():,}")
+        ts3.metric("Avg Delay", f"{transfer_flow_df['AvgDelayDays'].mean():.1f} days")
+        ts4.metric("Delayed (>3 days)", f"{(transfer_flow_df['AvgDelayDays'] > 3).sum()}")
+    else:
+        st.info("No transfer data for the selected filters.")
 
 # ---------------------------------------------------------------------------
 # Panel 3: Logistics & Operations
@@ -548,12 +832,12 @@ log_col1, log_col2 = st.columns(2)
 
 with log_col1:
     inv_df = get_inventory_series(filtered, start_datesk, end_datesk)
-    fig_ppe = make_ppe_trend(inv_df)
+    fig_ppe = make_ppe_trend(inv_df, ppe_threshold=thresholds["ppe_days_on_hand"]["value"])
     st.plotly_chart(fig_ppe, use_container_width=True, key="ppe_trend")
 
 with log_col2:
     staff_df = get_staff_by_region(filtered, start_datesk, end_datesk)
-    fig_staff = make_staff_availability(staff_df)
+    fig_staff = make_staff_availability(staff_df, shortage_threshold=thresholds["staff_shortage_rate"]["value"])
     st.plotly_chart(fig_staff, use_container_width=True, key="staff_avail")
 
 log_col3, log_col4 = st.columns(2)
@@ -565,7 +849,7 @@ with log_col3:
 
 with log_col4:
     supply_df = get_supply_delay_series(filtered, start_datesk, end_datesk)
-    fig_supply = make_supply_delay(supply_df)
+    fig_supply = make_supply_delay(supply_df, delay_threshold=thresholds["supply_delay_days"]["value"])
     st.plotly_chart(fig_supply, use_container_width=True, key="supply_delay")
 
 # ---------------------------------------------------------------------------
@@ -597,9 +881,20 @@ with threat_col1:
         label_visibility="collapsed",
     )
 
+    # Map trend metric columns to threshold keys
+    TREND_THRESHOLD_MAP = {
+        "avg_icu_capacity": "icu_capacity_pct",
+        "avg_response_time": "avg_response_time",
+        "avg_ppe_days": "ppe_days_on_hand",
+        "avg_staff_shortage": "staff_shortage_rate",
+        "avg_supply_delay": "supply_delay_days",
+    }
+    trend_thresh_key = TREND_THRESHOLD_MAP.get(trend_metric[0])
+    trend_thresh_val = thresholds[trend_thresh_key]["value"] if trend_thresh_key else None
+
     trend_df = get_trend_series(filtered, end_datesk, lookback_days=30)
     if not trend_df.empty:
-        fig_trend = make_trend_line(trend_df, trend_metric[0], trend_metric[1])
+        fig_trend = make_trend_line(trend_df, trend_metric[0], trend_metric[1], threshold_value=trend_thresh_val)
         st.plotly_chart(fig_trend, use_container_width=True, key="trend_line")
     else:
         st.info("No trend data available for the selected filters.")
@@ -625,60 +920,52 @@ with threat_col2:
     else:
         st.success("No counties in Alert or Critical status.")
 
-# ---------------------------------------------------------------------------
-# Panel 5: Incident Timeline
-# ---------------------------------------------------------------------------
+# Incident Timeline (subsection of Emerging Threats)
+with st.expander("Incident Timeline", expanded=False):
+    itl_col1, itl_col2, itl_col3 = st.columns(3)
+    with itl_col1:
+        itl_type_options = {"All Types": None}
+        itl_type_options.update({t["IncidentTypeName"]: t["IncidentTypeSK"] for t in incident_types})
+        itl_type = st.selectbox("Incident Type", options=list(itl_type_options.keys()), key="itl_type")
+    with itl_col2:
+        itl_sev_options = ["All Severities", "Critical", "High", "Medium", "Low"]
+        itl_sev = st.selectbox("Severity", options=itl_sev_options, key="itl_sev")
+    with itl_col3:
+        itl_county_options = {"All Counties": None}
+        itl_county_options.update(county_drill_options)
+        itl_county = st.selectbox("County", options=list(itl_county_options.keys()), key="itl_county")
 
-st.markdown(
-    '<div style="background: #8B1A1A; padding: 0.4rem 1rem; border-radius: 6px; margin: 0.8rem 0 0.5rem 0;">'
-    '<h3 style="color: white; margin: 0; font-size: 1.1rem; text-align: center;">Incident Timeline</h3></div>',
-    unsafe_allow_html=True,
-)
-
-itl_col1, itl_col2, itl_col3 = st.columns(3)
-with itl_col1:
-    itl_type_options = {"All Types": None}
-    itl_type_options.update({t["IncidentTypeName"]: t["IncidentTypeSK"] for t in incident_types})
-    itl_type = st.selectbox("Incident Type", options=list(itl_type_options.keys()), key="itl_type")
-with itl_col2:
-    itl_sev_options = ["All Severities", "Critical", "High", "Medium", "Low"]
-    itl_sev = st.selectbox("Severity", options=itl_sev_options, key="itl_sev")
-with itl_col3:
-    itl_county_options = {"All Counties": None}
-    itl_county_options.update(county_drill_options)
-    itl_county = st.selectbox("County", options=list(itl_county_options.keys()), key="itl_county")
-
-timeline_df = get_incident_timeline(
-    filtered,
-    start_datesk,
-    end_datesk,
-    county_sk=itl_county_options[itl_county],
-    incident_type_sk=itl_type_options[itl_type],
-    severity=itl_sev if itl_sev != "All Severities" else None,
-)
-
-if not timeline_df.empty:
-    fig_sev = make_incident_severity_chart(timeline_df)
-    st.plotly_chart(fig_sev, use_container_width=True, key="sev_chart")
-
-    st.dataframe(
-        timeline_df,
-        use_container_width=True,
-        hide_index=True,
-        height=min(len(timeline_df) * 35 + 40, 500),
-        column_config={
-            "Date": st.column_config.DateColumn("Date"),
-            "CountyName": "County",
-            "IncidentTypeName": "Type",
-            "SeverityLevel": "Severity",
-            "DetectionTimeHours": st.column_config.NumberColumn("Detection (hrs)", format="%.1f"),
-            "EscalationTimeHours": st.column_config.NumberColumn("Escalation (hrs)", format="%.1f"),
-            "ResponseTimeHours": st.column_config.NumberColumn("Response (hrs)", format="%.1f"),
-        },
+    timeline_df = get_incident_timeline(
+        filtered,
+        start_datesk,
+        end_datesk,
+        county_sk=itl_county_options[itl_county],
+        incident_type_sk=itl_type_options[itl_type],
+        severity=itl_sev if itl_sev != "All Severities" else None,
     )
-    st.caption(f"Showing {len(timeline_df):,} incidents")
-else:
-    st.info("No incidents match the selected filters.")
+
+    if not timeline_df.empty:
+        fig_sev = make_incident_severity_chart(timeline_df)
+        st.plotly_chart(fig_sev, use_container_width=True, key="sev_chart")
+
+        st.dataframe(
+            timeline_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(len(timeline_df) * 35 + 40, 500),
+            column_config={
+                "Date": st.column_config.DateColumn("Date"),
+                "CountyName": "County",
+                "IncidentTypeName": "Type",
+                "SeverityLevel": "Severity",
+                "DetectionTimeHours": st.column_config.NumberColumn("Detection (hrs)", format="%.1f"),
+                "EscalationTimeHours": st.column_config.NumberColumn("Escalation (hrs)", format="%.1f"),
+                "ResponseTimeHours": st.column_config.NumberColumn("Response (hrs)", format="%.1f"),
+            },
+        )
+        st.caption(f"Showing {len(timeline_df):,} incidents")
+    else:
+        st.info("No incidents match the selected filters.")
 
 # ---------------------------------------------------------------------------
 # Footer
@@ -686,7 +973,7 @@ else:
 
 st.divider()
 st.caption(
-    f"CROSS Dashboard v1.1 | Data: Kansas mock dataset | "
+    f"CROSS Dashboard v1.2 | Data: Kansas mock dataset | "
     f"Showing: {start_date} to {end_date} | "
-    f"Prepared by Francisco Galvez (Oracle Health HDI)"
+    f"Prepared by Francisco Galvez (Oracle Health AI CoE)"
 )
